@@ -28,7 +28,22 @@ if (useSqlite) {
   };
 } else {
   const { Pool } = require('pg');
-  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+
+  // Managed Postgres providers (Render, Heroku, Neon, Supabase, ...) require
+  // SSL connections. Local Postgres usually doesn't. Auto-enable SSL when the
+  // URL points at a known cloud host or when PGSSL=true is set explicitly.
+  const url = process.env.DATABASE_URL;
+  const explicitSsl = process.env.PGSSL === 'true';
+  const explicitNoSsl = process.env.PGSSL === 'false';
+  const looksManaged = /(render\.com|amazonaws\.com|heroku|neon\.tech|supabase\.co|railway\.app|fly\.dev)/.test(url);
+  const useSsl = explicitSsl || (looksManaged && !explicitNoSsl);
+
+  const pool = new Pool({
+    connectionString: url,
+    // rejectUnauthorized: false — managed providers issue certs from intermediates
+    // not in Node's default CA store. This is the standard Render/Heroku setting.
+    ssl: useSsl ? { rejectUnauthorized: false } : false,
+  });
 
   // Convert ? placeholders to $1, $2 for pg.
   const toPg = (sql) => {
