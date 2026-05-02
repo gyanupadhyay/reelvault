@@ -1,0 +1,22 @@
+{
+  "name": "reelvault-backend",
+  "version": "1.0.0",
+  "description": "ReelVault backend - reels, series, episodes, watch progress",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "seed": "node src/seed.js",
+    "init-db": "node src/init-db.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.2.0",
+    "cors": "^2.8.5",
+    "express": "^4.21.0",
+    "morgan": "^1.10.0",
+    "pg": "^8.13.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

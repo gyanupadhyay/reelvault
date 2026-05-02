@@ -1,0 +1,52 @@
+name: reelvault
+description: ReelVault — short-form video discovery with offline support.
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+  flutter: ">=3.19.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # State management
+  flutter_bloc: ^8.1.6
+  equatable: ^2.0.5
+
+  # DI
+  get_it: ^7.7.0
+
+  # Routing
+  go_router: ^14.2.7
+
+  # Networking
+  dio: ^5.7.0
+
+  # Video
+  video_player: ^2.9.1
+
+  # Storage
+  drift: ^2.20.2
+  drift_flutter: ^0.2.4
+  path_provider: ^2.1.4
+  path: ^1.9.0
+
+  # Downloads
+  background_downloader: ^8.7.4
+
+  # Connectivity
+  connectivity_plus: ^6.0.5
+
+  cupertino_icons: ^1.0.8
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  build_runner: ^2.4.12
+  drift_dev: ^2.20.2
+
+flutter:
+  uses-material-design: true
