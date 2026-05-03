@@ -11,11 +11,16 @@ import '../storage/app_database.dart';
 
 final sl = GetIt.instance;
 
-/// Set the API base URL for your environment.
-/// Android emulator: http://10.0.2.2:3000
-/// iOS simulator:    http://localhost:3000
-/// Real device:      http://<your-mac-lan-ip>:3000
-const kBaseUrl = String.fromEnvironment('API_BASE_URL', defaultValue: 'http://10.0.2.2:3000');
+/// API base URL. Defaults to the deployed Render backend so a fresh checkout
+/// + `flutter run` Just Works on a real device with no extra flags. Override
+/// with `--dart-define=API_BASE_URL=...` to point at a local backend:
+///   Android emulator: http://10.0.2.2:3000
+///   iOS simulator:    http://localhost:3000
+///   Real device on LAN: http://<your-machine-lan-ip>:3000
+const kBaseUrl = String.fromEnvironment(
+  'API_BASE_URL',
+  defaultValue: 'https://reelvault-umr4.onrender.com',
+);
 
 Future<void> setupLocator() async {
   // Core

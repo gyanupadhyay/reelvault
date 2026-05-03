@@ -4,11 +4,26 @@ Short-form video discovery app. Scroll reels, dive into series, watch episodes w
 
 ```
 reelvault/
-├── backend/         Node + Express + (SQLite | Postgres)
+├── backend/         Node + Express + (SQLite | Postgres) — deployed on Render
 ├── frontend/        Flutter (iOS + Android), Bloc + go_router + get_it
 ├── ARCHITECTURE.md  Layers, controller lifecycle, sync model, scope cuts
 └── README.md        ← you are here
 ```
+
+## Quick start (already deployed)
+
+The backend is live at **https://reelvault-umr4.onrender.com**, fronted by Render's free tier with managed Postgres and HTTPS. The Flutter app's default `API_BASE_URL` already points at it.
+
+```bash
+cd frontend
+flutter pub get
+dart run build_runner build --delete-conflicting-outputs
+flutter run                  # talks to the live backend, zero flags needed
+```
+
+> **Render free-tier sleep.** The web service spins down after 15 min idle. First request after sleep takes ~30s. Hit `https://reelvault-umr4.onrender.com/health` once before a demo to wake it up; the device's reel-fetch keeps it warm for the rest of the session.
+
+To run against a local backend instead, see [section 2](#2-run-the-flutter-app).
 
 ---
 
@@ -83,17 +98,18 @@ flutter run
 
 ### Backend URL by platform
 
-The app reads `API_BASE_URL` at compile time. Default is `http://10.0.2.2:3000` (Android emulator).
+The app reads `API_BASE_URL` at compile time. **Default is the deployed Render backend** — `https://reelvault-umr4.onrender.com` — so a fresh `flutter run` works on any device with no extra flags. Override only when pointing at a local backend.
 
 | Target | Command |
 |---|---|
-| Android emulator | `flutter run` (default works) |
-| iOS simulator    | `flutter run --dart-define=API_BASE_URL=http://localhost:3000` |
-| Real device      | `flutter run --dart-define=API_BASE_URL=http://<your-LAN-ip>:3000` |
+| **Default (deployed)**   | `flutter run` (uses live Render URL) |
+| Android emulator → local | `flutter run --dart-define=API_BASE_URL=http://10.0.2.2:3000` |
+| iOS simulator → local    | `flutter run --dart-define=API_BASE_URL=http://localhost:3000` |
+| Real device → local      | `flutter run --dart-define=API_BASE_URL=http://<your-LAN-ip>:3000` |
 
-To find your LAN IP: `ipconfig getifaddr en0` (mac) or `hostname -I` (linux).
+To find your LAN IP: `ipconfig getifaddr en0` (macOS) or `hostname -I` (Linux) or `ipconfig` (Windows).
 
-> **Real device gotcha:** Android Pie+ blocks cleartext HTTP by default. For testing only, add `android:usesCleartextTraffic="true"` to your `<application>` in `android/app/src/main/AndroidManifest.xml`, or run the backend behind HTTPS.
+> **`AndroidManifest.xml`** keeps `android:usesCleartextTraffic="true"` so the LAN-IP override paths still work for local-backend dev. Production traffic uses HTTPS — the cleartext flag isn't actually used unless you override to an `http://` URL.
 
 ---
 
@@ -184,15 +200,46 @@ The series-detail screen also has a "Continue Ep N" CTA that picks up the most r
 
 ## 4. Build a release APK
 
+The deployed backend URL is the default, so no `--dart-define` is required:
+
 ```bash
 cd frontend
-flutter build apk --release \
-  --dart-define=API_BASE_URL=https://your-deployed-backend.com
+flutter build apk --release
 ```
 
-Output: `build/app/outputs/flutter-apk/app-release.apk`. Distribute via Firebase App Distribution or upload directly.
+Output: `build/app/outputs/flutter-apk/app-release.apk`. Distribute via Firebase App Distribution, Drive link, or sideload.
 
-For a deployed backend, easiest options are Railway or Render — push the `backend/` folder, set `DATABASE_URL` to a managed Postgres, run `init-db` and `seed` once.
+To target a different backend (staging, local), pass the override:
+
+```bash
+flutter build apk --release --dart-define=API_BASE_URL=https://your-staging-backend.com
+```
+
+### Deploying your own backend (Render free tier)
+
+The current backend is hosted on Render. To replicate from scratch:
+
+1. **GitHub push** the repo.
+2. **Render → New Postgres** (Free plan). Copy the *External Database URL*.
+3. **Render → New Web Service** → connect repo → Root Directory `backend` → Build `npm install` → Start `npm start`. Add env vars:
+   - `DATABASE_URL` = External Postgres URL
+   - `NODE_ENV` = `production`
+   - `REELVAULT_MEDIA_BASE` = `https://<your-render-url>/static/videos`
+4. **Initialize schema + seed** by running locally against the remote DB (Render free tier blocks Shell):
+
+   ```bash
+   cd backend
+   DATABASE_URL='<external-postgres-url>' \
+   REELVAULT_MEDIA_BASE='https://<your-render-url>/static/videos' \
+     node src/init-db.js
+   DATABASE_URL='<external-postgres-url>' \
+   REELVAULT_MEDIA_BASE='https://<your-render-url>/static/videos' \
+     node src/seed.js
+   ```
+
+5. **Update** `frontend/lib/core/di/service_locator.dart` line 18: change `defaultValue` to your new URL, or pass `--dart-define=API_BASE_URL=...` at build time.
+
+`db.js` auto-enables SSL for managed Postgres providers (Render, Heroku, Neon, Supabase, Railway, Fly), so no extra config is needed.
 
 ---
 
