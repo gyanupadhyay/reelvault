@@ -27,7 +27,11 @@ To run against a local backend instead, see [section 2](#2-run-the-flutter-app).
 
 ---
 
-## 1. Run the backend
+## 1. Run the backend (optional — only for backend dev)
+
+Most users **don't need this**. The deployed Render backend is already serving every endpoint and the Flutter app's default URL points at it. Skip to [section 2](#2-run-the-flutter-app) unless you're modifying server-side code.
+
+If you want to run the backend locally:
 
 Requirements: Node **18+** (Node 20 LTS or 22 LTS recommended; Node 24 also works with the prebuilt binaries we depend on).
 
@@ -40,6 +44,8 @@ npm run init-db     # creates reelvault.db (SQLite)
 npm run seed        # 5 series × 5 episodes + 25 reels
 npm start           # http://localhost:3000
 ```
+
+> **Seed safety guard.** `seed.js` wipes every table on each run. To prevent accidental prod data loss, it refuses to run when `NODE_ENV=production` unless `ALLOW_DESTRUCTIVE_SEED=1` is also set. Local dev (no `NODE_ENV` set) runs unblocked.
 
 Verify:
 
@@ -152,13 +158,18 @@ Scroll through 50+ reels and grep `flutter logs` for `[pool]`. `size=2` througho
 - Reopen. Tap that ep again — resumes within a few seconds of where you left off.
 
 ### Backend monotonic guard
+
+Replace `$BASE` with either the deployed URL (`https://reelvault-umr4.onrender.com`) or your local backend (`http://localhost:3000`):
+
 ```bash
-curl -X PUT localhost:3000/progress/ser_01_ep1 \
+BASE=https://reelvault-umr4.onrender.com   # or http://localhost:3000
+
+curl -X PUT $BASE/progress/ser_01_ep1 \
   -H 'content-type: application/json' \
   -d '{"progress_seconds": 100}'
 # {"progress_seconds":100,...}
 
-curl -X PUT localhost:3000/progress/ser_01_ep1 \
+curl -X PUT $BASE/progress/ser_01_ep1 \
   -H 'content-type: application/json' \
   -d '{"progress_seconds": 50}'
 # {"progress_seconds":100,...}   ← did NOT regress to 50
@@ -183,7 +194,8 @@ curl -X PUT localhost:3000/progress/ser_01_ep1 \
 
 ### Continue Watching
 ```bash
-curl localhost:3000/continue-watching
+curl https://reelvault-umr4.onrender.com/continue-watching
+# Or against local: curl http://localhost:3000/continue-watching
 # Returns episodes you've started but not finished, ordered by recency.
 ```
 In the app, tap the 🕘 history icon on the right rail of the reel feed. You'll see a list of in-progress episodes (sorted by most recently watched), each with a progress bar and `mm:ss / mm:ss` indicator. Tap any row to resume directly in the player.
@@ -229,15 +241,24 @@ The current backend is hosted on Render. To replicate from scratch:
 
    ```bash
    cd backend
+
+   # Init schema — idempotent, safe to re-run.
    DATABASE_URL='<external-postgres-url>' \
    REELVAULT_MEDIA_BASE='https://<your-render-url>/static/videos' \
      node src/init-db.js
+
+   # Seed data — destructive (wipes tables). The prod-guard refuses to run
+   # if NODE_ENV=production is set, so override with ALLOW_DESTRUCTIVE_SEED=1
+   # for the first-time seed of a fresh prod DB.
    DATABASE_URL='<external-postgres-url>' \
    REELVAULT_MEDIA_BASE='https://<your-render-url>/static/videos' \
+   ALLOW_DESTRUCTIVE_SEED=1 \
      node src/seed.js
    ```
 
-5. **Update** `frontend/lib/core/di/service_locator.dart` line 18: change `defaultValue` to your new URL, or pass `--dart-define=API_BASE_URL=...` at build time.
+   > Why `ALLOW_DESTRUCTIVE_SEED=1` is needed: if your shell has `NODE_ENV=production` exported (or you're running this from a CI environment that sets it), the guard added in `seed.js` will refuse the run to protect live data. Without `NODE_ENV=production` set, the guard is inert and the variable isn't required.
+
+5. **Update** `frontend/lib/core/di/service_locator.dart`: change `defaultValue` on the `kBaseUrl` constant to your new URL, or pass `--dart-define=API_BASE_URL=...` at build time.
 
 `db.js` auto-enables SSL for managed Postgres providers (Render, Heroku, Neon, Supabase, Railway, Fly), so no extra config is needed.
 

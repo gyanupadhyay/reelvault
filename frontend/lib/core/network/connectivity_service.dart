@@ -10,12 +10,15 @@ class ConnectivityService {
   ConnectivityService() {
     // Seed with the actual current state — without this, isOnline stays true
     // until the first connectivity *change* event, which masks cold-start offline.
-    // If the listener has already fired by the time this resolves, skip the emit
-    // to avoid a duplicate syncPending tick on cold start.
+    // The double-guard below (check `_seeded` BOTH before mutating state AND before
+    // emitting) closes a narrow race where the platform listener fires the same
+    // value at almost the same instant as the seed Future resolving, which would
+    // otherwise trigger two `syncPending` ticks back-to-back.
     Connectivity().checkConnectivity().then((result) {
-      if (_seeded) return;
-      _online = _hasNetwork(result);
+      if (_seeded) return; // listener beat us to it
+      final next = _hasNetwork(result);
       _seeded = true;
+      _online = next;
       debugPrint('[conn] initial state: ${_online ? "ONLINE" : "OFFLINE"} ($result)');
       _controller.add(_online);
     });

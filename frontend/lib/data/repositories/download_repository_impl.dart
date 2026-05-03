@@ -18,33 +18,45 @@ class DownloadRepositoryImpl implements DownloadRepository {
   // Cache of live tasks by episodeId. Needed because background_downloader's
   // pause/resume APIs take a Task object, not just an id.
   final _tasks = <String, DownloadTask>{};
-  bool _initialized = false;
+  // Completer-based init guard. A plain bool would let two concurrent callers
+  // both pass the !_initialized check, double-registering the FileDownloader
+  // listener and doubling every status callback. The completer makes the
+  // second caller await the first.
+  Completer<void>? _initCompleter;
 
   DownloadRepositoryImpl(this._db);
 
   Future<void> _ensureInit() async {
-    if (_initialized) return;
-    _initialized = true;
+    if (_initCompleter != null) return _initCompleter!.future;
+    final completer = Completer<void>();
+    _initCompleter = completer;
 
-    // Repopulate the task cache from background_downloader's persisted state
-    // so pause/resume survives an app restart.
     try {
-      final all = await FileDownloader().allTasks();
-      for (final t in all) {
-        if (t is DownloadTask) _tasks[t.taskId] = t;
+      // Repopulate the task cache from background_downloader's persisted state
+      // so pause/resume survives an app restart.
+      try {
+        final all = await FileDownloader().allTasks();
+        for (final t in all) {
+          if (t is DownloadTask) _tasks[t.taskId] = t;
+        }
+        debugPrint('[download] init: rehydrated ${_tasks.length} task(s) from disk');
+      } catch (e) {
+        debugPrint('[download] init: no prior tasks ($e)');
       }
-      debugPrint('[download] init: rehydrated ${_tasks.length} task(s) from disk');
-    } catch (e) {
-      debugPrint('[download] init: no prior tasks ($e)');
-    }
 
-    FileDownloader().updates.listen((event) async {
-      if (event is TaskStatusUpdate) {
-        await _onStatus(event);
-      } else if (event is TaskProgressUpdate) {
-        await _onProgress(event);
-      }
-    });
+      FileDownloader().updates.listen((event) async {
+        if (event is TaskStatusUpdate) {
+          await _onStatus(event);
+        } else if (event is TaskProgressUpdate) {
+          await _onProgress(event);
+        }
+      });
+      completer.complete();
+    } catch (e, st) {
+      completer.completeError(e, st);
+      _initCompleter = null; // allow a future retry
+      rethrow;
+    }
   }
 
   Future<File> _fileFor(String episodeId) async {

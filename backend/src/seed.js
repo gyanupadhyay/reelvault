@@ -144,6 +144,18 @@ const upsert = async (table, columns, values, conflictKey) => {
 };
 
 (async () => {
+  // Production safety guard. The seed script unconditionally wipes every table
+  // on every run. Without this guard, a stray `DATABASE_URL=...prod... npm run seed`
+  // destroys live user data. Override with ALLOW_DESTRUCTIVE_SEED=1 if you really
+  // mean it (e.g. first-time bootstrap of a fresh prod DB).
+  if (process.env.NODE_ENV === 'production' && process.env.ALLOW_DESTRUCTIVE_SEED !== '1') {
+    console.error(
+      '❌ Refusing to run seed.js with NODE_ENV=production. This script wipes all tables.\n' +
+      '   If you really want to seed a production DB, set ALLOW_DESTRUCTIVE_SEED=1.'
+    );
+    process.exit(1);
+  }
+
   console.log(`Seeding on ${db.driver}…`);
 
   const contentSource = (process.env.REELVAULT_CONTENT_SOURCE || 'local').toLowerCase();
@@ -157,7 +169,7 @@ const upsert = async (table, columns, values, conflictKey) => {
     );
   }
 
-  // Wipe existing rows for clean re-seed (in dev only).
+  // Wipe existing rows for clean re-seed (gated above).
   await db.run('DELETE FROM watch_progress', []);
   await db.run('DELETE FROM reels', []);
   await db.run('DELETE FROM episodes', []);
