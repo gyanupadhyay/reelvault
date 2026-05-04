@@ -1,0 +1,33 @@
+# Node dependencies — installed via `npm install`, never committed
+node_modules/
+
+# Local SQLite database files. Schema is created via `npm run init-db`,
+# data via `npm run seed`. The .db / .db-shm / .db-wal trio is the live
+# WAL-mode SQLite store and contains potentially sensitive watch-progress
+# rows from local dev — must not be in git.
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+# Environment overrides (DATABASE_URL, JWT_SECRET, etc.)
+.env
+.env.*
+!.env.example
+
+# npm / yarn / pnpm logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.npm/
+
+# Build output (none for now, but reserve)
+dist/
+build/
+
+# Coverage
+coverage/
+.nyc_output/

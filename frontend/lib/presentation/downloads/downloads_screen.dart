@@ -34,7 +34,14 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
   }
 
   void _refresh() {
-    if (mounted) setState(() => _future = _load());
+    // Block body, NOT an arrow expression. `_load()` returns a Future, and an
+    // arrow `() => _future = _load()` would implicitly return that Future,
+    // triggering Flutter's "setState callback returned a Future" assertion.
+    if (mounted) {
+      setState(() {
+        _future = _load();
+      });
+    }
   }
 
   String _fmtBytes(int bytes) {
