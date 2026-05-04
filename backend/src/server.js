@@ -2,10 +2,23 @@
 const express = require('express');
 const cors = require('cors');
 const morgan = require('morgan');
+const compression = require('compression');
 const path = require('path');
 const db = require('./db');
 
 const app = express();
+
+// Gzip JSON responses. Skip /static/videos because mp4 is already compressed
+// and re-gzipping wastes CPU + breaks Range/streaming for large payloads.
+app.use(
+  compression({
+    filter: (req, res) => {
+      if (req.path.startsWith('/static/videos')) return false;
+      return compression.filter(req, res);
+    },
+  })
+);
+
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
 app.use(morgan('dev'));
@@ -13,7 +26,19 @@ app.use(morgan('dev'));
 // Serve locally-hosted videos for deterministic performance / offline downloads.
 // Files live under backend/public/videos/*.mp4 and are reachable at:
 //   http://<host>:3000/static/videos/<file>.mp4
-app.use('/static', express.static(path.join(__dirname, '..', 'public')));
+//
+// Long Cache-Control + immutable: filenames are content-stable (one mp4 per reel,
+// never overwritten in place), so the device's HTTP cache can pin them. A re-watch
+// of the same reel skips the network entirely. The ETag covers the rare case
+// where a reseed swaps a file but keeps the same name.
+app.use(
+  '/static',
+  express.static(path.join(__dirname, '..', 'public'), {
+    maxAge: '30d',
+    immutable: true,
+    etag: true,
+  })
+);
 
 const PORT = process.env.PORT || 3000;
 const DEFAULT_USER = 'demo-user'; // single-user app for the trial; replace with auth later.
@@ -68,10 +93,15 @@ app.get('/reels', async (req, res, next) => {
     const cursor = parseInt(req.query.cursor || '0', 10);
     const limit = Math.min(parseInt(req.query.limit || '20', 10), 50);
 
+    // thumbnail_url comes from the joined episode (per-episode thumbs already
+    // exist in the seed). Frontend uses it as a placeholder under the video so
+    // users never see a white spinner during init — it makes the feed feel like
+    // Instagram instead of "loading…".
     const rows = await db.all(
       `SELECT r.id, r.series_id, r.episode_id, r.video_url, r.duration_sec, r.rank,
               s.title AS series_title,
-              e.title AS episode_title, e.episode_number
+              e.title AS episode_title, e.episode_number,
+              e.thumbnail_url AS thumbnail_url
          FROM reels r
          JOIN series s ON s.id = r.series_id
          JOIN episodes e ON e.id = r.episode_id

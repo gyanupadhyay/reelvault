@@ -6,6 +6,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:video_player/video_player.dart';
 
+import '../../core/di/service_locator.dart';
+import '../../core/network/api_client.dart';
 import '../../domain/entities/reel.dart';
 import 'reel_feed_bloc.dart';
 import 'video_controller_pool.dart';
@@ -76,8 +78,37 @@ class _ReelFeedScreenState extends State<ReelFeedScreen>
       debugPrint('[feed] settled on $index — activating');
       _settledIndex = index;
       _pool.setActive(index, reels.map((r) => r.videoUrl).toList());
+      _warmAhead(reels, index);
       setState(() {}); // rebuild to bind new active controller widget
     });
+  }
+
+  /// Best-effort warmup of upcoming reels so swipes feel instant:
+  ///   1. Issue HTTP Range prefetch for the first 256KB of N+2..N+4 video URLs.
+  ///      Pool already initializes a real VideoPlayerController for N+1, so
+  ///      we skip that index and warm the OS cache for the ones beyond.
+  ///   2. Precache thumbnails for N+1..N+5 into Flutter's image cache so they
+  ///      render instantly when the user lands on those reels (no white spinner).
+  /// All errors swallowed — prefetch is opportunistic.
+  void _warmAhead(List<Reel> reels, int activeIndex) {
+    final api = sl<ApiClient>();
+    // Range prefetch for video bytes (skip activeIndex+1, pool covers it).
+    for (int i = activeIndex + 2; i <= activeIndex + 4; i++) {
+      if (i < 0 || i >= reels.length) continue;
+      api.prefetchRange(reels[i].videoUrl);
+    }
+    // Thumbnail precache — don't skip activeIndex+1 here, image cache is cheap.
+    for (int i = activeIndex; i <= activeIndex + 5; i++) {
+      if (i < 0 || i >= reels.length) continue;
+      final url = reels[i].thumbnailUrl;
+      if (url == null || url.isEmpty) continue;
+      // precacheImage requires a context; mounted check above already passed.
+      precacheImage(NetworkImage(url), context).catchError((_) {
+        // Thumb fetch failed — gradient underlay handles it. Silent.
+      });
+    }
+    debugPrint(
+        '[feed] 🔥 warm-ahead from #$activeIndex → range[N+2..N+4], thumbs[N..N+5]');
   }
 
   @override
@@ -169,7 +200,34 @@ class _ReelTile extends StatelessWidget {
     return Stack(
       fit: StackFit.expand,
       children: [
-        Container(color: Colors.black),
+        // Layer 1: dark gradient — ultimate fallback if even the thumbnail
+        // can't load (offline + thumbnail host unreachable). Better than pure
+        // black because the user gets a hint that something will appear.
+        Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Color(0xFF1A1A1F), Color(0xFF000000)],
+            ),
+          ),
+        ),
+
+        // Layer 2: per-reel thumbnail. Renders the moment bytes arrive and
+        // covers the gradient. Stays visible underneath the video — when the
+        // VideoPlayer paints, it occludes the thumbnail at the same Z order.
+        // gaplessPlayback: true keeps the previous thumb visible until the
+        // new one loads (no white flash on rapid scroll).
+        if (reel.thumbnailUrl != null && reel.thumbnailUrl!.isNotEmpty)
+          Image.network(
+            reel.thumbnailUrl!,
+            fit: BoxFit.cover,
+            gaplessPlayback: true,
+            errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+          ),
+
+        // Layer 3: the actual video, shown only once the controller settles.
+        // The thumbnail under it remains visible during init — no spinner.
         if (showVideo && controller != null)
           GestureDetector(
             behavior: HitTestBehavior.opaque,
@@ -190,9 +248,7 @@ class _ReelTile extends StatelessWidget {
                 child: VideoPlayer(controller!),
               ),
             ),
-          )
-        else
-          const Center(child: CircularProgressIndicator(color: Colors.white)),
+          ),
 
         // Big play icon when paused (Insta-style feedback).
         if (showVideo && controller != null)

@@ -25,6 +25,7 @@ class RemoteDataSource {
           seriesTitle: j['series_title'],
           episodeTitle: j['episode_title'],
           episodeNumber: j['episode_number'],
+          thumbnailUrl: j['thumbnail_url'] as String?,
         )).toList();
     return (items: items, nextCursor: r.data['next_cursor'] as int?);
   }
