@@ -112,7 +112,18 @@ Auto-advance on completion is unchanged (`pushReplacement` to the next episode);
 
 ## Continue Watching
 
-`ContinueWatchingScreen` calls `ProgressRepository.continueWatching()`. The repo prefers the server (`GET /continue-watching`, which sorts by `last_watched_at DESC` and filters `completed = 0 AND progress_seconds > 0`) and falls back to a local Drift query that joins `progress_local` with `cached_episodes` when offline. Same shape on both paths, so the UI is path-agnostic.
+`ContinueWatchingScreen` calls `ProgressRepository.continueWatching()`. The repo prefers the server (`GET /continue-watching`) and falls back to a local Drift query joining `progress_local` with `cached_episodes` when offline. Same shape on both paths, so the UI is path-agnostic.
+
+**One row per in-progress *series*, not per episode.** The spec wording is "in-progress series," matching the Netflix/Prime/YouTube convention — if a user has touched Ep 1, Ep 2, and Ep 4 of the same series, only the most recently watched episode shows up; tapping the row resumes that episode.
+
+Server uses a window function:
+
+```sql
+ROW_NUMBER() OVER (PARTITION BY e.series_id ORDER BY p.last_watched_at DESC) AS rn
+... WHERE rn = 1
+```
+
+Window functions are supported by both SQLite (≥3.25) and Postgres, so the same SQL ships unchanged across local dev and the deployed Render Postgres. The offline fallback in Dart mirrors this with a single-pass walk through the recency-sorted list, keeping the first occurrence per `series_id` (a `Set<String>` guards against duplicates).
 
 The screen is reachable from the 🕘 icon on the reel feed's right rail (next to playlist and downloads). It's mounted inside the same `ShellRoute` as the feed, so the feed's bloc and scroll position survive the round-trip.
 

@@ -284,19 +284,33 @@ class ProgressRepositoryImpl implements ProgressRepository {
     try {
       return await _remote.continueWatching();
     } catch (_) {
-      // Offline: build from local progress + cached episodes.
+      // Offline fallback: build from local progress + cached episodes.
+      // Mirrors the server's "one row per in-progress series" semantics —
+      // we pull all in-progress rows ordered by recency, then walk through
+      // and keep only the FIRST occurrence per series_id. Since the source
+      // is already sorted DESC by last_watched_at, the kept row is the most
+      // recently touched episode for each series. Then trim to 10.
       final progress = await (_db.select(_db.progressLocal)
-            ..where((t) => t.completed.equals(false) & t.progressSeconds.isBiggerThanValue(0))
-            ..orderBy([(t) => d.OrderingTerm(expression: t.lastWatchedAt, mode: d.OrderingMode.desc)])
-            ..limit(10))
+            ..where((t) =>
+                t.completed.equals(false) & t.progressSeconds.isBiggerThanValue(0))
+            ..orderBy([
+              (t) => d.OrderingTerm(
+                  expression: t.lastWatchedAt, mode: d.OrderingMode.desc)
+            ]))
           .get();
+      if (progress.isEmpty) return [];
       final ids = progress.map((p) => p.episodeId).toList();
-      if (ids.isEmpty) return [];
-      final eps = await (_db.select(_db.cachedEpisodes)..where((t) => t.id.isIn(ids))).get();
+      final eps =
+          await (_db.select(_db.cachedEpisodes)..where((t) => t.id.isIn(ids))).get();
       final byId = {for (final e in eps) e.id: e};
-      return progress.where((p) => byId.containsKey(p.episodeId)).map((p) {
-        final e = byId[p.episodeId]!;
-        return ContinueWatchingItem(
+
+      final seenSeries = <String>{};
+      final out = <ContinueWatchingItem>[];
+      for (final p in progress) {
+        final e = byId[p.episodeId];
+        if (e == null) continue;
+        if (!seenSeries.add(e.seriesId)) continue; // dedupe: keep latest per series
+        out.add(ContinueWatchingItem(
           episodeId: e.id,
           episodeTitle: e.title,
           episodeNumber: e.episodeNumber,
@@ -305,8 +319,10 @@ class ProgressRepositoryImpl implements ProgressRepository {
           seriesTitle: e.seriesTitle,
           seriesThumb: e.seriesThumb,
           progressSeconds: p.progressSeconds,
-        );
-      }).toList();
+        ));
+        if (out.length == 10) break;
+      }
+      return out;
     }
   }
 }

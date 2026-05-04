@@ -173,19 +173,39 @@ app.post('/progress/bulk-sync', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-// Continue Watching helper — used by frontend home screen
+// Continue Watching — one row per in-progress *series* (matches the spec
+// wording "in-progress series" and the Netflix/Prime/YouTube convention).
+// We rank each user's in-progress episodes within their series by recency
+// and keep only rank=1 — i.e. the latest episode the user touched in that
+// series. Window functions are supported by SQLite ≥3.25 and Postgres,
+// the two backends we target.
 app.get('/continue-watching', async (req, res, next) => {
   try {
     const userId = userIdFromReq(req);
     const rows = await db.all(
-      `SELECT e.id AS episode_id, e.title AS episode_title, e.episode_number, e.duration_sec, e.thumbnail_url AS episode_thumb,
-              s.id AS series_id, s.title AS series_title, s.thumbnail_url AS series_thumb,
-              p.progress_seconds, p.last_watched_at
-         FROM watch_progress p
-         JOIN episodes e ON e.id = p.episode_id
-         JOIN series s   ON s.id = e.series_id
-        WHERE p.user_id = ? AND p.completed = 0 AND p.progress_seconds > 0
-        ORDER BY p.last_watched_at DESC
+      `WITH ranked AS (
+         SELECT p.episode_id, p.progress_seconds, p.last_watched_at,
+                e.title AS episode_title, e.episode_number, e.duration_sec,
+                e.thumbnail_url AS episode_thumb,
+                s.id AS series_id, s.title AS series_title,
+                s.thumbnail_url AS series_thumb,
+                ROW_NUMBER() OVER (
+                  PARTITION BY e.series_id
+                  ORDER BY p.last_watched_at DESC
+                ) AS rn
+           FROM watch_progress p
+           JOIN episodes e ON e.id = p.episode_id
+           JOIN series   s ON s.id = e.series_id
+          WHERE p.user_id = ?
+            AND p.completed = 0
+            AND p.progress_seconds > 0
+       )
+       SELECT episode_id, episode_title, episode_number, duration_sec, episode_thumb,
+              series_id, series_title, series_thumb,
+              progress_seconds, last_watched_at
+         FROM ranked
+        WHERE rn = 1
+        ORDER BY last_watched_at DESC
         LIMIT 10`,
       [userId]
     );
