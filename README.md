@@ -358,7 +358,10 @@ lsof -ti:3000 | xargs kill -9
 | HTTP Range prefetch primitive | `frontend/lib/core/network/api_client.dart` (`prefetchRange`) |
 | Thumbnail underlay (no spinner during init) | `frontend/lib/presentation/reel_feed/reel_feed_screen.dart` (`_ReelTile.build`) |
 | Monotonic progress (client) | `frontend/lib/data/repositories/repositories_impl.dart` (`ProgressRepositoryImpl.saveProgress`) |
-| Monotonic progress (server) | `backend/src/server.js` (`upsertProgress`) |
+| Monotonic progress (server) | `backend/src/repositories/progressRepo.js` (`upsertProgress`) |
+| Backend composition root (middleware + route mounting) | `backend/src/server.js` |
+| Server-side route handlers | `backend/src/routes/{reels,series,progress,continueWatching}.js` |
+| User identity middleware (auth seam) | `backend/src/middleware/userId.js` |
 | Offline → online sync | `frontend/lib/core/di/service_locator.dart` (the connectivity listener at the bottom) |
 | Cold-start offline detection | `frontend/lib/core/network/connectivity_service.dart` (`checkConnectivity()` seed in constructor) |
 | Resumable downloads | `frontend/lib/data/repositories/download_repository_impl.dart` |

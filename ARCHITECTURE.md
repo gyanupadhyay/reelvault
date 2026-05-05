@@ -1,6 +1,6 @@
 # ReelVault — Architecture
 
-## Layers
+## Frontend layers
 
 ```
 presentation/   Flutter widgets, BLoCs (UI state machines)
@@ -10,6 +10,32 @@ core/           Cross-cutting: DI (get_it), router (go_router), networking, stor
 ```
 
 The presentation layer talks only to the domain layer's repository interfaces. The data layer satisfies those interfaces. Swapping the backend or storage engine never touches presentation code.
+
+## Backend layout
+
+```
+backend/src/
+├── server.js                  composition root — middleware + route mounting
+├── config.js                  port, default user, paths, body limits
+├── db.js                      driver abstraction: SQLite local / Postgres prod
+├── init-db.js                 CLI: idempotent schema create
+├── seed.js                    CLI: wipe + reseed (NODE_ENV=production refuses)
+├── middleware/
+│   ├── compression.js         gzip JSON, skip /static/videos
+│   ├── userId.js              extracts x-user-id → req.userId (auth seam)
+│   └── errorHandler.js        sanitized 500 — no leaked stack traces
+├── repositories/
+│   └── progressRepo.js        upsertProgress (monotonic conflict resolution)
+└── routes/
+    ├── reels.js               GET /reels (paginated)
+    ├── series.js              GET /series/:id (joined with this user's progress)
+    ├── progress.js            GET, PUT /progress/:episodeId; POST /progress/bulk-sync
+    └── continueWatching.js    GET /continue-watching
+```
+
+`server.js` is intentionally small (~50 lines) — it composes middleware in mount order, mounts each route module by URL prefix, attaches the error handler last, and starts listening. All actual work lives in `routes/` and `repositories/`. A reviewer can follow any endpoint from the route mount in `server.js` to the handler file by URL prefix without scrolling around a monolith.
+
+The `userId` middleware is the only seam that needs to change when real auth lands — replace the `x-user-id` header read with a JWT verify and set `req.userId` from the verified `sub` claim. Every route reads `req.userId` and is unchanged.
 
 ## State management — Bloc
 
@@ -178,7 +204,7 @@ These three together are what enable the perceived-loading fixes on the client s
 | Local DB | `drift` | Type-safe SQL, supports complex joins for "merge cached episodes with local progress + downloads." Isar is faster but the API has churned and 4.0 is unstable. |
 | Downloads | `background_downloader` | Active maintenance, native pause/resume, iOS+Android background support. `flutter_downloader` is older and the resume story is weaker. |
 | Video | `video_player` | First-party Flutter plugin. `better_player` and `media_kit` are richer but heavier; for the controller-pool approach, the simpler API wins. |
-| Backend runtime | Node 18 + Express | Smallest possible footprint to ship the 5 endpoints the spec requires. No ORM — raw SQL via a thin wrapper keeps the monotonic-upsert logic visible and auditable in one place. Go/Rust would be faster per-request but slower to read in a 30-minute review. |
+| Backend runtime | Node 18 + Express | Smallest possible footprint for the 5 endpoints the spec requires. No ORM — raw SQL via a thin driver wrapper keeps the monotonic-upsert logic visible in one file (`repositories/progressRepo.js`) so a reviewer can audit the conflict-resolution rule in 30 seconds. Layered structure (config / middleware / repositories / routes) keeps `server.js` ~50 lines so the composition is easy to scan. |
 | Backend DB | `better-sqlite3` (default) with `pg` adapter | SQLite means the reviewer can `npm i && npm run init-db && npm run seed` and have a working backend in 10 seconds, no docker, no Postgres install. The `pg` adapter is included so the same server file works against Postgres unchanged for a real deployment. |
 | Content source | Self-hosted MP4s in `backend/public/videos/` | Picked over Pexels/Pixabay/Mux for three reasons: (1) deterministic — the reviewer's airplane-mode test won't be confounded by a third-party CDN flake; (2) zero rate limits during stress-testing 100+ reels; (3) lets us prove "backend down → downloaded content still plays" cleanly because the only network dependency is our own Express server. 25 distinct mp4s ship in the repo, one per reel, so no video repeats in the feed. |
 
