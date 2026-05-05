@@ -2,26 +2,27 @@
 //
 // ARCHITECTURE NOTE — controller lifecycle:
 //
-// We keep AT MOST 2 controllers alive at any moment: the active reel and the
-// next reel (forward-preload only). On Android, every additional video_player
-// instance reserves a hardware codec slot, and Qualcomm's c2.qti.avc.decoder
-// silently fails to allocate when 3+ 1080p H.264 streams compete during a
-// fast-scroll dispose-then-create transition. Real-device telemetry showed 14
-// such failures in a 7-minute session with the old prev/cur/next pool.
+// We keep up to 3 controllers alive: prev / active / next. Only the active slot
+// is actively playing/decoding; prev and next are initialized but paused, so
+// the hardware decoder doesn't actually decode frames for them. This is the
+// key reason the prev/cur/next window is safe on Qualcomm again — the original
+// 14 silent decoder failures observed earlier this session happened when all
+// three slots were *playing* simultaneously during fast-scroll transitions.
+// With paused neighbors, only one decoder is doing real work at any moment.
 //
-// Trade-off: backward scroll (active going from N → N-1) costs a fresh init
-// (~500ms visible spinner) because we don't keep the previous reel warm. This
-// matches TikTok-style usage where forward scroll dominates and is the right
-// choice on a memory- + decoder-constrained mobile target.
+// Why bring prev back: backward swipes (active going N → N-1) cost a full
+// fresh init (~500-1500ms over WAN) without prev preload. The user reported
+// this as "video doesn't load when swiping back." With prev kept warm and
+// paused, swiping back is as instant as forward.
 //
 // Network-side preloading: we initialize() the next controller as soon as we know
 // the user has settled on the current reel (see scroll-settle in the screen).
 // That way when the user swipes, the next reel is already buffered.
 //
 // Bandwidth prioritization: the active reel always starts initialize() *before*
-// the next-preload. Without this, on cold start both #0 and #1 would compete for
-// the same socket / DNS / TLS handshake bandwidth and #0 would arrive ~700ms later.
-// We start #0 first, schedule the next init one frame later via microtask,
+// the neighbors. Without this, on cold start #0 and #1 would compete for the
+// same socket / DNS / TLS handshake bandwidth and #0 would arrive ~700ms later.
+// We start active first, schedule neighbor inits one frame later via microtask,
 // and only await the active slot's ready future before play().
 //
 // Edge cases handled:
@@ -32,7 +33,8 @@
 //  - Dispose: must be called from the screen's dispose() so all controllers go.
 //  - Decoder init failure: video_player's initialize() can resolve *successfully*
 //    even when the underlying codec failed. We detect via controller.value.hasError
-//    after init and dispose+recreate the slot once before giving up.
+//    after init and dispose+recreate the slot once before giving up. The
+//    `_retriedSlots` set guards against an infinite recreate loop.
 
 import 'package:flutter/foundation.dart';
 import 'package:video_player/video_player.dart';
@@ -49,9 +51,10 @@ class _Slot {
 }
 
 class VideoControllerPool {
-  // Forward-preload distance. 1 means: keep {active, active+1} alive.
-  // We don't expose prev-preload — it would exceed the device's safe concurrent
-  // hardware-decoder count during fast-scroll dispose transitions.
+  // Backward and forward preload distances. 1/1 means: keep {active-1, active, active+1}.
+  // Backward must stay paused after init — only the active slot actively decodes,
+  // so we don't oversubscribe Qualcomm's MediaCodec slot count even with 3 controllers.
+  final int backwardPreload;
   final int forwardPreload;
   final List<_Slot> _slots = [];
   int _activeIndex = -1;
@@ -63,7 +66,10 @@ class VideoControllerPool {
   // infinite recreate loop if the codec keeps failing for the same reel.
   final Set<int> _retriedSlots = <int>{};
 
-  VideoControllerPool({this.forwardPreload = 1});
+  VideoControllerPool({
+    this.backwardPreload = 1,
+    this.forwardPreload = 1,
+  });
 
   /// Returns the controller for [index] if it's currently in the pool. Otherwise null.
   VideoPlayerController? controllerAt(int index) =>
@@ -74,13 +80,15 @@ class VideoControllerPool {
   Future<void>? readyAt(int index) =>
       _slots.firstWhereOrNull((s) => s.index == index)?.ready;
 
-  /// Set the currently active reel. Recycles the pool window to {active, active+1, ..., active+forwardPreload}.
-  /// Pauses non-active controllers, plays the active one once initialized.
+  /// Set the currently active reel. Recycles the pool window to
+  /// {active-backwardPreload .. active+forwardPreload}. Pauses non-active
+  /// controllers (so they hold a decoder slot but don't decode frames),
+  /// plays the active one once initialized.
   Future<void> setActive(int index, List<String> urls) async {
     _activeIndex = index;
 
     final wantedIndices = <int>{
-      for (int i = index; i <= index + forwardPreload; i++)
+      for (int i = index - backwardPreload; i <= index + forwardPreload; i++)
         if (i >= 0 && i < urls.length) i,
     };
 

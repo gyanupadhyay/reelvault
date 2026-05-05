@@ -21,7 +21,10 @@ class ReelFeedScreen extends StatefulWidget {
 
 class _ReelFeedScreenState extends State<ReelFeedScreen>
     with WidgetsBindingObserver, AutomaticKeepAliveClientMixin {
-  final _pool = VideoControllerPool(forwardPreload: 1);
+  // backwardPreload + forwardPreload = 1/1: pool keeps {N-1, N, N+1}.
+  // Only the active slot actively decodes; neighbors are paused after init,
+  // so we hold 3 decoder slots but only 1 is doing work — safe on Qualcomm.
+  final _pool = VideoControllerPool(backwardPreload: 1, forwardPreload: 1);
   late final PageController _page;
   Timer? _settleTimer;
   int _settledIndex = 0;
@@ -83,22 +86,29 @@ class _ReelFeedScreenState extends State<ReelFeedScreen>
     });
   }
 
-  /// Best-effort warmup of upcoming reels so swipes feel instant:
-  ///   1. Issue HTTP Range prefetch for the first 256KB of N+2..N+4 video URLs.
-  ///      Pool already initializes a real VideoPlayerController for N+1, so
-  ///      we skip that index and warm the OS cache for the ones beyond.
-  ///   2. Precache thumbnails for N+1..N+5 into Flutter's image cache so they
-  ///      render instantly when the user lands on those reels (no white spinner).
+  /// Best-effort warmup of nearby reels so swipes feel instant:
+  ///   1. Issue HTTP Range prefetch for the first 512KB of video URLs:
+  ///        - Forward N+2..N+4 (pool already inits a real controller for N+1)
+  ///        - Backward N-2..N-3 (pool keeps a controller for N-1; further back
+  ///          is just OS-cache warmup)
+  ///      512KB covers the moov atom + first frames for typical reel mp4s.
+  ///   2. Precache thumbnails for N-2..N+5 into Flutter's image cache so they
+  ///      render instantly when the user lands on those reels.
   /// All errors swallowed — prefetch is opportunistic.
   void _warmAhead(List<Reel> reels, int activeIndex) {
     final api = sl<ApiClient>();
-    // Range prefetch for video bytes (skip activeIndex+1, pool covers it).
+    // Forward Range prefetch (skip activeIndex+1, pool covers it).
     for (int i = activeIndex + 2; i <= activeIndex + 4; i++) {
       if (i < 0 || i >= reels.length) continue;
-      api.prefetchRange(reels[i].videoUrl);
+      api.prefetchRange(reels[i].videoUrl, bytes: 524287);
     }
-    // Thumbnail precache — don't skip activeIndex+1 here, image cache is cheap.
-    for (int i = activeIndex; i <= activeIndex + 5; i++) {
+    // Backward Range prefetch (skip activeIndex-1, pool covers it).
+    for (int i = activeIndex - 2; i >= activeIndex - 3; i--) {
+      if (i < 0 || i >= reels.length) continue;
+      api.prefetchRange(reels[i].videoUrl, bytes: 524287);
+    }
+    // Thumbnail precache — wider window, image cache is cheap.
+    for (int i = activeIndex - 2; i <= activeIndex + 5; i++) {
       if (i < 0 || i >= reels.length) continue;
       final url = reels[i].thumbnailUrl;
       if (url == null || url.isEmpty) continue;
@@ -108,7 +118,7 @@ class _ReelFeedScreenState extends State<ReelFeedScreen>
       });
     }
     debugPrint(
-        '[feed] 🔥 warm-ahead from #$activeIndex → range[N+2..N+4], thumbs[N..N+5]');
+        '[feed] 🔥 warm-ahead from #$activeIndex → range[N-3..N-2, N+2..N+4], thumbs[N-2..N+5]');
   }
 
   @override
@@ -227,7 +237,13 @@ class _ReelTile extends StatelessWidget {
           ),
 
         // Layer 3: the actual video, shown only once the controller settles.
-        // The thumbnail under it remains visible during init — no spinner.
+        // FittedBox + BoxFit.cover makes the video FULL-BLEED — it fills the
+        // entire screen, cropping the edges of landscape sources to match a
+        // portrait viewport. This is what TikTok/Instagram do for reels and
+        // it's also why the thumbnail underneath is fully occluded once the
+        // video starts: with letterboxing (the prior Center+AspectRatio), the
+        // thumbnail leaked through black bands above/below. Now the video
+        // covers the entire surface, so no thumbnail bleeds through.
         if (showVideo && controller != null)
           GestureDetector(
             behavior: HitTestBehavior.opaque,
@@ -241,11 +257,18 @@ class _ReelTile extends StatelessWidget {
                 c.play();
               }
             },
-            child: Center(
-              child: AspectRatio(
-                aspectRatio:
-                    controller!.value.aspectRatio == 0 ? 9 / 16 : controller!.value.aspectRatio,
-                child: VideoPlayer(controller!),
+            child: SizedBox.expand(
+              child: FittedBox(
+                fit: BoxFit.cover,
+                child: SizedBox(
+                  width: controller!.value.size.width == 0
+                      ? 9
+                      : controller!.value.size.width,
+                  height: controller!.value.size.height == 0
+                      ? 16
+                      : controller!.value.size.height,
+                  child: VideoPlayer(controller!),
+                ),
               ),
             ),
           ),
