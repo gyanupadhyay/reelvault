@@ -21,26 +21,44 @@ The reel feed BLoC is provided in a `ShellRoute`, not the screen itself. That's 
 
 This is the highest-risk subsystem, so it's worth explaining in detail.
 
-`VideoControllerPool` keeps **at most 2 `VideoPlayerController`s alive at any moment**: the current reel and the next reel (forward-preload only). When the user swipes, we:
+`VideoControllerPool` keeps **3 `VideoPlayerController`s alive at any moment**: prev / current / next (the window `{N-1, N, N+1}`). Only the active slot is actively playing/decoding — both neighbors are initialized and immediately paused. When the user swipes, we:
 
-1. Compute the new desired window `{i, i+1}`.
+1. Compute the new desired window `{i-1, i, i+1}`.
 2. Dispose every controller whose index is no longer in the window.
 3. Create + `initialize()` a controller for any new index in the window.
-4. Play the controller at the active index, pause the neighbor.
+4. Play the active controller; keep the neighbors paused.
 
-**Why forward-only, not prev/cur/next?** Real-device telemetry on a Qualcomm-SoC Android phone showed that keeping 3 simultaneous 1080p H.264 controllers alive caused 14 silent decoder-init failures (`c2.qti.avc.decoder` returning errors that `video_player.initialize()` swallowed) over a 7-minute scroll session. Each `dispose()` releases the hardware codec slot asynchronously, so during a fast-scroll transition we'd briefly hold 4 native decoders — past the device's safe concurrent count for high-profile streams. Switching to forward-only cuts the steady-state to 2 (transient peak 3) and eliminated the failures. Trade-off: backward scroll (active going N → N-1) costs a fresh ~500ms init, which is acceptable for a TikTok-style mostly-forward feed.
+**The "paused neighbors" rule is what makes 3 controllers safe on Qualcomm.** Earlier in this project's history, a `radius=1` pool that *played* the active and *initialized* the neighbors caused 14 silent `c2.qti.avc.decoder` init failures during fast-scroll transitions — the device's hardware decoder slot count overflowed when 3+ streams were actively decoding plus a fourth in mid-dispose. The current design holds 3 native decoder slots steady-state but only ever has *one* doing real frame decoding work, which sits well within the device's concurrent-decoder budget. Real-device telemetry confirms zero decoder failures across hundreds of transitions including backward scrolls.
 
-**Decoder-failure recovery.** Even with forward-only, if a slot's `controller.value.hasError` is true after `initialize()` resolves, the pool disposes it and recreates once before giving up. This catches transient codec hiccups without infinite retry loops (a `_retriedSlots` set guards against that).
+**Why bring prev back at all?** The earlier "forward-only" pool (`{N, N+1}`) was decoder-safe but the user reported "video doesn't load when swiping back" — every backward swipe paid a full ~500-1500ms re-init over WAN. Keeping prev warm and paused makes backward swipes as instant as forward.
+
+**Decoder-failure recovery.** As a defense in depth, if a slot's `controller.value.hasError` is true after `initialize()` resolves, the pool disposes it and recreates once before giving up. This catches transient codec hiccups without infinite retry loops (a `_retriedSlots` set guards against that).
 
 The pool is independent of the BLoC — it's a plain Dart object owned by the screen's `State`. The BLoC reports the active index; the screen drives the pool. This separation matters: the BLoC stays pure (testable without Flutter), and the pool encapsulates the messy lifecycle.
 
-**Memory ceiling:** 2 controllers × N MB each, regardless of feed length. Verified by scrolling 100+ reels — controller count stays at 2 throughout.
+**Memory ceiling:** 3 controllers × N MB each, regardless of feed length. Verified — controller count stays at 3 throughout.
 
-## Preloading
+## Preloading and prefetch
 
-Initialization of the next controller happens the moment `setActive(i)` is called for index `i`. Because we initialize `i+1` immediately, by the time the user finishes a swipe gesture, the next reel's first frames are already buffered. The buffer-ahead distance is therefore "one reel," which is the simplest defensible answer — going further would re-introduce the decoder-pressure problem described above.
+Three layers of preload work together so swipes never wait on the network:
+
+1. **Pool preload (active+1, active-1).** Both neighbors hold real `VideoPlayerController`s with their first frames already initialized. Forward and backward swipes hit `waited 0ms` because the pool just calls `play()` on a controller that's already buffered.
+
+2. **HTTP Range prefetch (active±2..±4).** Beyond the pool window, the screen calls `ApiClient.prefetchRange(url, bytes: 524287)` for the next 2-4 reels in both directions. This issues an HTTP `Range: bytes=0-524287` request for 512KB of each upcoming reel's video — enough to cover the mp4 moov atom plus several seconds of frames. The bytes land in the OS HTTP cache; when the user actually scrolls to those reels, ExoPlayer's internal HTTP layer finds the bytes already on disk and skips the network roundtrip. Backed by the backend's `Cache-Control: max-age=30d, immutable` headers on `/static/videos`. Dedup tracking on the `ApiClient` (`_prefetchInFlight` + `_prefetchDone`) prevents duplicate fetches.
+
+3. **Thumbnail precache (active-2..active+5).** While the user is on reel N, we walk N-2..N+5 and call `precacheImage(NetworkImage(thumbnailUrl), context)` for each. Thumbnails decode into Flutter's image cache so they render instantly when the user lands on those reels. Combined with the thumbnail-underlay rendering (see below), this is what makes the feed *feel* like Instagram — the user never sees a white spinner during transitions, only a real image with the video fading in over it.
 
 **Cold-start prefetch.** The first `/reels` page is also fetched eagerly during `setupLocator()`, before the bloc even mounts. The repository (`ReelRepositoryImpl`) caches the in-flight `Future` so when the bloc's `fetchReels(cursor: 0)` call arrives a few hundred ms later, it gets handed the same Future instead of issuing a duplicate request. This overlaps the HTTP roundtrip with Flutter framework boot and shaves a few hundred ms off the cold-start path on real hardware.
+
+## Reel tile rendering — no white spinner, ever
+
+The reel tile uses a 3-layer Stack:
+
+1. **Gradient fallback** — `Container(decoration: LinearGradient(...))`. Visible only if everything else fails (offline + thumbnail host unreachable). Better than a white spinner — the user gets a hint that something will appear.
+2. **Thumbnail** — `Image.network(reel.thumbnailUrl, fit: BoxFit.cover, gaplessPlayback: true)`. Renders the moment bytes arrive (fast — comes from the precached image cache when scrolling). Fully covers the gradient.
+3. **Video** — `FittedBox(fit: BoxFit.cover, child: VideoPlayer(controller))`, full-bleed. Once the controller initializes, the video renders on top of the thumbnail and fully occludes it (no letterbox bleed-through, even for 16:9 sources on a portrait phone — the edges crop, matching TikTok/Instagram's vertical-feed model).
+
+There is no `CircularProgressIndicator` in the reel tile. Every "loading" surface is masked by either a thumbnail or a gradient.
 
 ## Scroll-settle (fast scroll handling)
 
@@ -131,13 +149,23 @@ The screen is reachable from the 🕘 icon on the reel feed's right rail (next t
 
 When the user taps a reel, the destination route includes `?fromEpisodeId=<id>`. `SeriesScreen` reads it from `state.uri.queryParameters` and passes it down to each `_EpisodeTile`. The matching tile renders with a tinted `primaryContainer` background and a "From reel" pill. This is a stateless visual cue — no extra state in the bloc.
 
+## Backend perf (HTTP wire layer)
+
+The deployed backend (Render free tier, fronted by Cloudflare) is configured for cheap-but-effective wire-level wins:
+
+- **Brotli/gzip on JSON.** `compression()` middleware gzips `/reels`, `/series/:id`, `/progress/:id` etc. The `/static/videos` path is excluded — mp4 is already compressed and re-gzipping streams is wasteful + breaks Range. In practice, Cloudflare's edge applies Brotli on top, dropping a 6.4KB `/reels?limit=20` JSON to ~736 bytes (~88% reduction).
+- **Long Cache-Control on videos.** `/static` serves with `Cache-Control: public, max-age=2592000, immutable` plus `ETag`. Videos are content-stable (one mp4 per reel, never overwritten), so the device's HTTP cache pins them for 30 days. A re-watched reel skips the network entirely. Range requests (`bytes=0-N`) still return `206 Partial Content` correctly — the Express static handler is Range-aware out of the box.
+- **`thumbnail_url` in `/reels` response.** The endpoint now joins `episodes.thumbnail_url` so each reel item carries the URL of an image to display under the video while the controller initializes. No DB schema change — the column already existed in the `episodes` table.
+
+These three together are what enable the perceived-loading fixes on the client side (Range prefetch lands bytes into the cached path; thumbnails arrive in time to mask init waits).
+
 ## What breaks at scale (honest)
 
 1. **Single-user model** — backend hardcodes `demo-user`. Real auth would need JWT and a `users` table.
-2. **No CDN** — videos are served by the dev backend's `express.static` from `backend/public/videos/`. At scale you'd want signed URLs from a real CDN.
-3. **No retry/backoff** on individual progress writes — they rely on the bulk-sync net to catch them. Fine for a trial; in prod I'd add exponential backoff. Bulk sync itself is now chunked into 200-row batches.
-4. **No video manifest negotiation** — we assume the URL plays. HLS/DASH adaptive bitrate is out of scope, which is why all reels are 1080p MP4. A production app would ship a 720p reel rendition to ease decoder pressure further.
-5. **Reel feed isn't cached locally** — the bloc fetches `/reels` over the network on every cold start (eager prefetch overlaps it with framework boot, but the network is still the bottleneck). Caching the last seen page in Drift would make subsequent cold starts effectively instant.
+2. **No origin CDN for videos.** Cloudflare fronts the host transparently (via Render's edge), but `cf-cache-status: DYNAMIC` confirms videos aren't edge-cached on the free tier — every byte still pulls from Render Singapore. A real R2 + CloudFront-style setup would put videos at edge POPs and cut WAN latency dramatically. The device-cache headers we set still help for re-watch within a session.
+3. **No retry/backoff** on individual progress writes — they rely on the bulk-sync net to catch them. Fine for a trial; in prod I'd add exponential backoff. Bulk sync itself is chunked into 200-row batches.
+4. **No video manifest negotiation** — we assume the URL plays. HLS/DASH adaptive bitrate is out of scope. A production app would ship a 720p reel rendition + HLS for adaptive bitrate.
+5. **Reel feed isn't locally cached** — the bloc fetches `/reels` over the network on every cold start (eager prefetch overlaps it with framework boot, but the network is still the bottleneck). Caching the last seen page in Drift would make subsequent cold starts effectively instant.
 
 ## Library choices, justified
 

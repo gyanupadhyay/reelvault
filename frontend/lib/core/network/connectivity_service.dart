@@ -8,24 +8,20 @@ class ConnectivityService {
   bool _seeded = false;
 
   ConnectivityService() {
-    // Seed with the actual current state — without this, isOnline stays true
-    // until the first connectivity *change* event, which masks cold-start offline.
-    // The double-guard below (check `_seeded` BOTH before mutating state AND before
-    // emitting) closes a narrow race where the platform listener fires the same
-    // value at almost the same instant as the seed Future resolving, which would
-    // otherwise trigger two `syncPending` ticks back-to-back.
+    // Seed before the listener fires, otherwise isOnline reads `true` until
+    // the first connectivity *change* — which hides cold-start offline.
+    // _seeded gates both branches so they don't double-emit if the listener
+    // and the seed Future race.
     Connectivity().checkConnectivity().then((result) {
-      if (_seeded) return; // listener beat us to it
-      final next = _hasNetwork(result);
+      if (_seeded) return;
       _seeded = true;
-      _online = next;
+      _online = _hasNetwork(result);
       debugPrint('[conn] initial state: ${_online ? "ONLINE" : "OFFLINE"} ($result)');
       _controller.add(_online);
     });
 
-    // Only emit when the boolean actually flips. The platform stream re-fires
-    // with the current value on subscribe, which would otherwise trigger a
-    // duplicate syncPending right after the seed above.
+    // Skip re-emits with the same boolean — the platform stream replays the
+    // current value on subscribe and we don't want a phantom syncPending.
     Connectivity().onConnectivityChanged.listen((result) {
       final next = _hasNetwork(result);
       if (_seeded && next == _online) return;

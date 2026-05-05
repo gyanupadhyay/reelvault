@@ -128,13 +128,16 @@ To find your LAN IP: `ipconfig getifaddr en0` (macOS) or `hostname -I` (Linux) o
 - DevTools → Performance tab → record while scrolling. Frames should stay under 16ms (60fps).
 
 ### Controller count (the 30% piece)
-The pool is forward-only (`{active, active+1}`), so it never holds more than 2 controllers in steady state. The existing `[pool]` debug logs print the window on every transition:
+The pool keeps `{active-1, active, active+1}` — 3 controllers steady-state. Only the active slot actively decodes; both neighbors are paused after init, so we hold 3 hardware decoder slots but only 1 does real work — safe on Qualcomm. Backward swipes are instant because `active-1` is already buffered. The existing `[pool]` debug logs print the window on every transition:
 
 ```
-[pool] active=N  size=2  window=[N, N+1]  +created=[N+1]  -disposed=[N-1]
+[pool] active=N  size=3  window=[N-1, N, N+1]  +created=[N+1]  -disposed=[N-2]
 ```
 
-Scroll through 50+ reels and grep `flutter logs` for `[pool]`. `size=2` throughout. The reasoning (decoder oversubscription on Qualcomm SoCs) is in `ARCHITECTURE.md` under "Reel feed — controller lifecycle."
+Scroll through 50+ reels (forward AND backward) and grep `flutter logs` for `[pool]`. `size=3` throughout, `[pool] ⚠ decoder error` count stays 0. The "paused neighbors" reasoning and the earlier forward-only experiment that informed it are in `ARCHITECTURE.md` under "Reel feed — controller lifecycle."
+
+### Why no spinner during loading
+The reel tile is a 3-layer Stack — gradient (fallback), per-reel thumbnail (`thumbnail_url` from `/reels`), and the video on top. While the controller initializes, the user sees the thumbnail (instantly precached for N-2..N+5). Once the video is ready, it draws over the thumbnail full-bleed. There's no `CircularProgressIndicator` in the tile at all. Combined with bidirectional HTTP Range prefetch (warming the OS cache for N±2..N±4 reel video bytes) and `Cache-Control: max-age=30d, immutable` on `/static/videos`, transitions stay smooth even over WAN. See `ARCHITECTURE.md` "Preloading and prefetch" for the full layering.
 
 ### Series navigation + scroll preservation
 - Scroll to reel 7. Tap the playlist icon. Series view opens.
@@ -351,7 +354,9 @@ lsof -ti:3000 | xargs kill -9
 | Concern | File |
 |---|---|
 | Controller lifecycle (the hardest piece) | `frontend/lib/presentation/reel_feed/video_controller_pool.dart` |
-| Scroll-settle debounce | `frontend/lib/presentation/reel_feed/reel_feed_screen.dart` (`_onPageChanged`) |
+| Scroll-settle debounce + bidirectional Range/thumbnail prefetch | `frontend/lib/presentation/reel_feed/reel_feed_screen.dart` (`_onPageChanged`, `_warmAhead`) |
+| HTTP Range prefetch primitive | `frontend/lib/core/network/api_client.dart` (`prefetchRange`) |
+| Thumbnail underlay (no spinner during init) | `frontend/lib/presentation/reel_feed/reel_feed_screen.dart` (`_ReelTile.build`) |
 | Monotonic progress (client) | `frontend/lib/data/repositories/repositories_impl.dart` (`ProgressRepositoryImpl.saveProgress`) |
 | Monotonic progress (server) | `backend/src/server.js` (`upsertProgress`) |
 | Offline → online sync | `frontend/lib/core/di/service_locator.dart` (the connectivity listener at the bottom) |

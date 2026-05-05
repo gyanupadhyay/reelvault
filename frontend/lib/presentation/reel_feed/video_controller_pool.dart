@@ -1,40 +1,16 @@
-// lib/presentation/reel_feed/video_controller_pool.dart
+// Controller pool. Keeps {prev, active, next}, but only the active slot
+// actually decodes — neighbors are paused after init so we don't oversubscribe
+// the hardware codec. Tried this naively once and ate 14 c2.qti.avc.decoder
+// failures before realizing the failures only happened when all three were
+// *playing* during a fast-scroll transition.
 //
-// ARCHITECTURE NOTE — controller lifecycle:
+// Active starts initialize() first; neighbors deferred via microtask so they
+// don't steal the first network slice. setActive() awaits only the active
+// slot's ready future before play().
 //
-// We keep up to 3 controllers alive: prev / active / next. Only the active slot
-// is actively playing/decoding; prev and next are initialized but paused, so
-// the hardware decoder doesn't actually decode frames for them. This is the
-// key reason the prev/cur/next window is safe on Qualcomm again — the original
-// 14 silent decoder failures observed earlier this session happened when all
-// three slots were *playing* simultaneously during fast-scroll transitions.
-// With paused neighbors, only one decoder is doing real work at any moment.
-//
-// Why bring prev back: backward swipes (active going N → N-1) cost a full
-// fresh init (~500-1500ms over WAN) without prev preload. The user reported
-// this as "video doesn't load when swiping back." With prev kept warm and
-// paused, swiping back is as instant as forward.
-//
-// Network-side preloading: we initialize() the next controller as soon as we know
-// the user has settled on the current reel (see scroll-settle in the screen).
-// That way when the user swipes, the next reel is already buffered.
-//
-// Bandwidth prioritization: the active reel always starts initialize() *before*
-// the neighbors. Without this, on cold start #0 and #1 would compete for the
-// same socket / DNS / TLS handshake bandwidth and #0 would arrive ~700ms later.
-// We start active first, schedule neighbor inits one frame later via microtask,
-// and only await the active slot's ready future before play().
-//
-// Edge cases handled:
-//  - Fast swipes: callers should not invoke `setActive(i)` for indices the user blew
-//    past. The screen debounces via scroll-settle (150ms).
-//  - App backgrounded: caller must call pauseActive(); we don't dispose because the
-//    user expects resume on foreground.
-//  - Dispose: must be called from the screen's dispose() so all controllers go.
-//  - Decoder init failure: video_player's initialize() can resolve *successfully*
-//    even when the underlying codec failed. We detect via controller.value.hasError
-//    after init and dispose+recreate the slot once before giving up. The
-//    `_retriedSlots` set guards against an infinite recreate loop.
+// Caller responsibilities: pauseActive() on background, disposeAll() on screen
+// dispose, and don't fire setActive() per-page-change — debounce via the
+// screen's 150ms scroll-settle.
 
 import 'package:flutter/foundation.dart';
 import 'package:video_player/video_player.dart';
@@ -51,19 +27,15 @@ class _Slot {
 }
 
 class VideoControllerPool {
-  // Backward and forward preload distances. 1/1 means: keep {active-1, active, active+1}.
-  // Backward must stay paused after init — only the active slot actively decodes,
-  // so we don't oversubscribe Qualcomm's MediaCodec slot count even with 3 controllers.
   final int backwardPreload;
   final int forwardPreload;
   final List<_Slot> _slots = [];
   int _activeIndex = -1;
   bool _firstPlayLogged = false;
-  // Remember playback position per reel index so if the user scrolls away or
-  // navigates to another screen and comes back, the reel resumes like Instagram.
+  // Position-per-index so navigating away and back resumes mid-reel.
   final Map<int, Duration> _resumeByIndex = {};
-  // Indices we've already retried after a decoder-failure init. Prevents an
-  // infinite recreate loop if the codec keeps failing for the same reel.
+  // One-shot retry guard — if a slot's hasError survives the first recreate,
+  // we stop trying. Otherwise a permanently-bad URL would hang the pool.
   final Set<int> _retriedSlots = <int>{};
 
   VideoControllerPool({
@@ -71,19 +43,12 @@ class VideoControllerPool {
     this.forwardPreload = 1,
   });
 
-  /// Returns the controller for [index] if it's currently in the pool. Otherwise null.
   VideoPlayerController? controllerAt(int index) =>
       _slots.firstWhereOrNull((s) => s.index == index)?.controller;
 
-  /// Future that resolves when the controller at [index] is initialized, or null
-  /// if there's no slot for that index.
   Future<void>? readyAt(int index) =>
       _slots.firstWhereOrNull((s) => s.index == index)?.ready;
 
-  /// Set the currently active reel. Recycles the pool window to
-  /// {active-backwardPreload .. active+forwardPreload}. Pauses non-active
-  /// controllers (so they hold a decoder slot but don't decode frames),
-  /// plays the active one once initialized.
   Future<void> setActive(int index, List<String> urls) async {
     _activeIndex = index;
 
@@ -92,11 +57,9 @@ class VideoControllerPool {
         if (i >= 0 && i < urls.length) i,
     };
 
-    // Dispose slots that are no longer in the window.
     final disposedNow = <int>[];
     _slots.removeWhere((s) {
       if (!wantedIndices.contains(s.index)) {
-        // Persist last known position before disposing.
         try {
           if (s.controller.value.isInitialized) {
             _resumeByIndex[s.index] = s.controller.value.position;
@@ -110,10 +73,8 @@ class VideoControllerPool {
       return false;
     });
 
-    // Add slots for any missing indices.
-    // BANDWIDTH PRIORITIZATION: start the active slot's init immediately.
-    // Defer neighbor inits via Future.microtask so the active socket gets first
-    // dibs on DNS / TCP / TLS / first bytes — this knocks ~600ms off cold start.
+    // Active inits inline; neighbors are deferred by one microtask so they
+    // don't compete with the active slot for DNS/TLS/first bytes.
     final createdNow = <int>[];
     final sortedToCreate = wantedIndices
         .where((i) => !_slots.any((s) => s.index == i))
@@ -130,7 +91,6 @@ class VideoControllerPool {
           urls[i].length > 60 ? '...${urls[i].substring(urls[i].length - 60)}' : urls[i];
       late final Future<void> ready;
       if (i == index) {
-        // Start the active slot's init synchronously.
         final initStart = DateTime.now();
         ready = controller.initialize().then((_) {
           controller.setLooping(true);
@@ -141,8 +101,6 @@ class VideoControllerPool {
           debugPrint('[pool]   ✗ init failed for #$i ($shortUrl): $e');
         });
       } else {
-        // Defer neighbor init by one event-loop turn so it doesn't steal the
-        // first network slice from the active slot.
         ready = Future.microtask(() {
           final initStart = DateTime.now();
           return controller.initialize().then((_) {
@@ -158,7 +116,6 @@ class VideoControllerPool {
       _slots.add(_Slot(i, controller, ready));
     }
 
-    // Spec-verification log: pool window + size + churn for this transition.
     final inPool = _slots.map((s) => s.index).toList()..sort();
     debugPrint(
       '[pool] active=$index  size=${_slots.length}  window=$inPool'
@@ -174,22 +131,18 @@ class VideoControllerPool {
         await s.ready;
         final waitMs = DateTime.now().difference(waitStart).inMilliseconds;
         if (!s.disposed) {
-          // Decoder-failure recovery: video_player.initialize() can resolve
-          // successfully even when ExoPlayer's MediaCodec failed to allocate
-          // a hardware decoder. We catch that here, dispose, and recreate once.
+          // initialize() can resolve "successfully" while the underlying codec
+          // failed (hasError set, no surface). Recreate once before giving up.
           if (s.controller.value.hasError && _retriedSlots.add(s.index)) {
             debugPrint(
                 '[pool]   ⚠ decoder error on #$index after init — recreating once: ${s.controller.value.errorDescription}');
             try { await s.controller.dispose(); } catch (_) {}
             _slots.remove(s);
-            // One-shot retry. If it fails again, the tile will show its
-            // existing fallback spinner and the user can scroll past.
             return setActive(index, urls);
           }
           final resumeAt = _resumeByIndex[index] ?? Duration.zero;
-          // If we have a saved position, resume from it; otherwise start at 0.
-          // Clamp to duration just in case metadata changed.
           final dur = s.controller.value.duration;
+          // Clamp in case the saved position is past the end (metadata change).
           final clamped = (dur > Duration.zero && resumeAt > dur)
               ? Duration.zero
               : resumeAt;
@@ -209,11 +162,9 @@ class VideoControllerPool {
           }
         }
       } else {
-        // Pause neighbors but keep them initialized so swipe is instant.
         try {
           await s.ready;
           if (!s.disposed) {
-            // Save where this reel stopped so returning resumes from same point.
             if (s.controller.value.isInitialized) {
               _resumeByIndex[s.index] = s.controller.value.position;
             }

@@ -1,8 +1,6 @@
-// src/db.js
-// Database abstraction. Uses Postgres if DATABASE_URL is set, else SQLite for local dev.
-// Both expose: db.all(sql, params), db.get(sql, params), db.run(sql, params).
-// Postgres uses $1, $2... style; SQLite uses ? style. We translate at the call site
-// via the helper `q(sql)` that converts ? to $N for postgres.
+// Postgres if DATABASE_URL is set, else local SQLite. Both expose the same
+// .all/.get/.run/.exec surface. Routes write SQL with `?` placeholders; the pg
+// branch rewrites those to `$1, $2, ...` at query time.
 
 const useSqlite = !process.env.DATABASE_URL;
 
@@ -29,9 +27,8 @@ if (useSqlite) {
 } else {
   const { Pool } = require('pg');
 
-  // Managed Postgres providers (Render, Heroku, Neon, Supabase, ...) require
-  // SSL connections. Local Postgres usually doesn't. Auto-enable SSL when the
-  // URL points at a known cloud host or when PGSSL=true is set explicitly.
+  // Auto-enable SSL for the usual managed Postgres hosts. PGSSL=true|false
+  // overrides if you need to.
   const url = process.env.DATABASE_URL;
   const explicitSsl = process.env.PGSSL === 'true';
   const explicitNoSsl = process.env.PGSSL === 'false';
@@ -40,12 +37,11 @@ if (useSqlite) {
 
   const pool = new Pool({
     connectionString: url,
-    // rejectUnauthorized: false — managed providers issue certs from intermediates
-    // not in Node's default CA store. This is the standard Render/Heroku setting.
+    // Managed providers chain through intermediates Node's default CA store
+    // doesn't know about — standard Render/Heroku workaround.
     ssl: useSsl ? { rejectUnauthorized: false } : false,
   });
 
-  // Convert ? placeholders to $1, $2 for pg.
   const toPg = (sql) => {
     let i = 0;
     return sql.replace(/\?/g, () => `$${++i}`);

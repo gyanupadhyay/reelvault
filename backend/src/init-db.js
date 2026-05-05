@@ -1,5 +1,4 @@
-// src/init-db.js
-// Creates the schema. Idempotent.
+// CLI: create the schema. Idempotent — re-running is a no-op.
 const db = require('./db');
 
 const schema = `
@@ -45,18 +44,15 @@ CREATE TABLE IF NOT EXISTS watch_progress (
 CREATE INDEX IF NOT EXISTS idx_progress_user ON watch_progress(user_id, last_watched_at DESC);
 `;
 
-// Postgres uses NOW() and BOOLEAN; we keep SQL portable with TEXT timestamps and INTEGER bools.
-// This works on both engines because we never call datetime('now') on pg — we always pass
-// timestamps from the application layer (ISO strings) for inserts/updates.
+// We use TEXT for timestamps and INTEGER for bools so the same SQL parses on
+// both SQLite and Postgres. The only literal that needs swapping is the
+// SQLite-specific datetime() default below.
 
 (async () => {
-  if (db.driver === 'pg') {
-    // Postgres needs slightly different default. Strip the SQLite-only default.
-    const pgSchema = schema.replace("DEFAULT (datetime('now'))", "DEFAULT (NOW()::TEXT)");
-    await db.exec(pgSchema);
-  } else {
-    await db.exec(schema);
-  }
+  const sql = db.driver === 'pg'
+    ? schema.replace("DEFAULT (datetime('now'))", "DEFAULT (NOW()::TEXT)")
+    : schema;
+  await db.exec(sql);
   console.log(`✓ Schema initialized on ${db.driver}`);
   process.exit(0);
 })().catch((e) => {

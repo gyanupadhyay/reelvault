@@ -48,18 +48,17 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
       if (ready) {
         _wasPlayingBeforeBackground = c.value.isPlaying;
         c.pause();
-        _saveProgress(); // tighten force-kill durability beyond the 5s timer
+        // Sync save in addition to the 5s timer — gives us ~0s of loss on
+        // background-then-OS-kill, vs ~5s if we relied on the timer alone.
+        _saveProgress();
       }
     } else if (state == AppLifecycleState.resumed) {
-      // ModalRoute.of can throw if the framework is mid-teardown when the
-      // lifecycle event fires. Defensive try-catch — if we can't determine
-      // route currency, skip the auto-resume rather than crashing.
+      // ModalRoute.of can throw mid-teardown. Default to false on error and
+      // skip auto-resume rather than crashing the lifecycle callback.
       bool isCurrent = false;
       try {
         isCurrent = mounted && (ModalRoute.of(context)?.isCurrent ?? false);
-      } catch (_) {
-        isCurrent = false;
-      }
+      } catch (_) {}
       debugPrint(
           '[player] resumed (current=$isCurrent, wasPlaying=$_wasPlayingBeforeBackground, ready=$ready)');
       if (ready && _wasPlayingBeforeBackground && isCurrent) {

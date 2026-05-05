@@ -1,4 +1,3 @@
-// lib/core/di/service_locator.dart
 import 'package:get_it/get_it.dart';
 
 import '../../data/datasources/remote_data_source.dart';
@@ -11,39 +10,30 @@ import '../storage/app_database.dart';
 
 final sl = GetIt.instance;
 
-/// API base URL. Defaults to the deployed Render backend so a fresh checkout
-/// + `flutter run` Just Works on a real device with no extra flags. Override
-/// with `--dart-define=API_BASE_URL=...` to point at a local backend:
-///   Android emulator: http://10.0.2.2:3000
-///   iOS simulator:    http://localhost:3000
-///   Real device on LAN: http://<your-machine-lan-ip>:3000
+/// Override with `--dart-define=API_BASE_URL=http://10.0.2.2:3000` (emulator),
+/// `http://localhost:3000` (iOS sim), or `http://<lan-ip>:3000` (real device
+/// on LAN).
 const kBaseUrl = String.fromEnvironment(
   'API_BASE_URL',
   defaultValue: 'https://reelvault-umr4.onrender.com',
 );
 
 Future<void> setupLocator() async {
-  // Core
   sl.registerLazySingleton<ApiClient>(() => ApiClient(baseUrl: kBaseUrl));
   sl.registerLazySingleton<AppDatabase>(() => AppDatabase());
   sl.registerLazySingleton<ConnectivityService>(() => ConnectivityService());
-
-  // Data sources
   sl.registerLazySingleton<RemoteDataSource>(() => RemoteDataSource(sl()));
-
-  // Repositories
   sl.registerLazySingleton<ReelRepository>(() => ReelRepositoryImpl(sl()));
   sl.registerLazySingleton<SeriesRepository>(() => SeriesRepositoryImpl(sl(), sl()));
   sl.registerLazySingleton<ProgressRepository>(() => ProgressRepositoryImpl(sl(), sl()));
   sl.registerLazySingleton<DownloadRepository>(() => DownloadRepositoryImpl(sl()));
 
-  // Sync on reconnect.
   sl<ConnectivityService>().changes.listen((online) {
     if (online) sl<ProgressRepository>().syncPending();
   });
 
-  // Eager prefetch of the reel feed first page. Overlaps the HTTP roundtrip
-  // with Flutter bootstrap + first frame so the bloc has data the instant the
-  // feed screen mounts. Saves 200–700ms off cold start in real-device testing.
+  // Kick the /reels HTTP off before the bloc mounts so it overlaps with
+  // framework boot. The bloc's first fetchReels(cursor:0) hands back this
+  // future instead of doing a duplicate request.
   sl<ReelRepository>().startPrefetch();
 }

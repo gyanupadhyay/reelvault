@@ -86,28 +86,19 @@ class _ReelFeedScreenState extends State<ReelFeedScreen>
     });
   }
 
-  /// Best-effort warmup of nearby reels so swipes feel instant:
-  ///   1. Issue HTTP Range prefetch for the first 512KB of video URLs:
-  ///        - Forward N+2..N+4 (pool already inits a real controller for N+1)
-  ///        - Backward N-2..N-3 (pool keeps a controller for N-1; further back
-  ///          is just OS-cache warmup)
-  ///      512KB covers the moov atom + first frames for typical reel mp4s.
-  ///   2. Precache thumbnails for N-2..N+5 into Flutter's image cache so they
-  ///      render instantly when the user lands on those reels.
-  /// All errors swallowed — prefetch is opportunistic.
+  /// Skip activeIndex±1 — the pool already keeps real controllers for those.
+  /// Range prefetch covers ±2..±4 (warms OS cache), thumbnails are wider since
+  /// the image cache is cheap.
   void _warmAhead(List<Reel> reels, int activeIndex) {
     final api = sl<ApiClient>();
-    // Forward Range prefetch (skip activeIndex+1, pool covers it).
     for (int i = activeIndex + 2; i <= activeIndex + 4; i++) {
       if (i < 0 || i >= reels.length) continue;
       api.prefetchRange(reels[i].videoUrl, bytes: 524287);
     }
-    // Backward Range prefetch (skip activeIndex-1, pool covers it).
     for (int i = activeIndex - 2; i >= activeIndex - 3; i--) {
       if (i < 0 || i >= reels.length) continue;
       api.prefetchRange(reels[i].videoUrl, bytes: 524287);
     }
-    // Thumbnail precache — wider window, image cache is cheap.
     for (int i = activeIndex - 2; i <= activeIndex + 5; i++) {
       if (i < 0 || i >= reels.length) continue;
       final url = reels[i].thumbnailUrl;
@@ -203,16 +194,12 @@ class _ReelTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Push overlays above the system gesture bar / 3-button nav.
-    // viewPadding.bottom is non-zero on devices with a system inset at the bottom
-    // (most modern Androids + iPhones with home indicator).
+    // Lift overlays above the gesture bar / 3-button nav.
     final bottomInset = MediaQuery.viewPaddingOf(context).bottom;
     return Stack(
       fit: StackFit.expand,
       children: [
-        // Layer 1: dark gradient — ultimate fallback if even the thumbnail
-        // can't load (offline + thumbnail host unreachable). Better than pure
-        // black because the user gets a hint that something will appear.
+        // Gradient under everything — fallback if both thumbnail and video fail.
         Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
@@ -223,11 +210,7 @@ class _ReelTile extends StatelessWidget {
           ),
         ),
 
-        // Layer 2: per-reel thumbnail. Renders the moment bytes arrive and
-        // covers the gradient. Stays visible underneath the video — when the
-        // VideoPlayer paints, it occludes the thumbnail at the same Z order.
-        // gaplessPlayback: true keeps the previous thumb visible until the
-        // new one loads (no white flash on rapid scroll).
+        // Thumbnail. gaplessPlayback prevents a white flash during rapid scroll.
         if (reel.thumbnailUrl != null && reel.thumbnailUrl!.isNotEmpty)
           Image.network(
             reel.thumbnailUrl!,
@@ -236,19 +219,13 @@ class _ReelTile extends StatelessWidget {
             errorBuilder: (_, __, ___) => const SizedBox.shrink(),
           ),
 
-        // Layer 3: the actual video, shown only once the controller settles.
-        // FittedBox + BoxFit.cover makes the video FULL-BLEED — it fills the
-        // entire screen, cropping the edges of landscape sources to match a
-        // portrait viewport. This is what TikTok/Instagram do for reels and
-        // it's also why the thumbnail underneath is fully occluded once the
-        // video starts: with letterboxing (the prior Center+AspectRatio), the
-        // thumbnail leaked through black bands above/below. Now the video
-        // covers the entire surface, so no thumbnail bleeds through.
+        // Video, full-bleed via FittedBox.cover. Anything else (Center +
+        // AspectRatio) letterboxes 16:9 sources on a portrait phone and the
+        // thumbnail underneath bleeds through the black bars.
         if (showVideo && controller != null)
           GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: () {
-              // Instagram-style tap-to-pause / tap-to-play.
               final c = controller!;
               if (!c.value.isInitialized) return;
               if (c.value.isPlaying) {

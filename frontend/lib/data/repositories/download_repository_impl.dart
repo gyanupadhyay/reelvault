@@ -15,13 +15,10 @@ import '../../domain/repositories/repositories.dart';
 class DownloadRepositoryImpl implements DownloadRepository {
   final AppDatabase _db;
   final _streams = <String, StreamController<DownloadStatus>>{};
-  // Cache of live tasks by episodeId. Needed because background_downloader's
-  // pause/resume APIs take a Task object, not just an id.
+  // background_downloader pause/resume needs the Task object, not just the id.
   final _tasks = <String, DownloadTask>{};
-  // Completer-based init guard. A plain bool would let two concurrent callers
-  // both pass the !_initialized check, double-registering the FileDownloader
-  // listener and doubling every status callback. The completer makes the
-  // second caller await the first.
+  // Completer instead of a bool so two concurrent callers don't both register
+  // the FileDownloader listener and double every callback.
   Completer<void>? _initCompleter;
 
   DownloadRepositoryImpl(this._db);
@@ -32,8 +29,6 @@ class DownloadRepositoryImpl implements DownloadRepository {
     _initCompleter = completer;
 
     try {
-      // Repopulate the task cache from background_downloader's persisted state
-      // so pause/resume survives an app restart.
       try {
         final all = await FileDownloader().allTasks();
         for (final t in all) {
@@ -54,7 +49,7 @@ class DownloadRepositoryImpl implements DownloadRepository {
       completer.complete();
     } catch (e, st) {
       completer.completeError(e, st);
-      _initCompleter = null; // allow a future retry
+      _initCompleter = null;
       rethrow;
     }
   }

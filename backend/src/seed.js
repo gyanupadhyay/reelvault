@@ -1,17 +1,11 @@
-// src/seed.js
-// Seeds 5 series × 5 episodes = 25 episodes, plus 25 reels (one per episode).
-// Uses Google's public sample videos (gtv-videos-bucket) — stable, free, CORS-friendly.
+// CLI: wipe + reseed 5 series × 5 episodes + 25 reels. DESTRUCTIVE —
+// gated behind NODE_ENV=production unless ALLOW_DESTRUCTIVE_SEED=1.
 
 const db = require('./db');
 
-// Content source:
-//
-// Default is locally-hosted MP4s served from this backend for deterministic playback:
-//   http://<host>:3000/static/videos/<name>.mp4
-//
-// If you want to seed with remote URLs instead, set REELVAULT_MEDIA_BASE to a full URL
-// (e.g. https://cdn.example.com/reelvault) and use filenames below.
-
+// Where the seeded video URLs point. Defaults to this server's /static so the
+// flow Just Works locally; override with REELVAULT_MEDIA_BASE when seeding a
+// deployed backend (e.g. https://reelvault-umr4.onrender.com/static/videos).
 const MEDIA_BASE =
   process.env.REELVAULT_MEDIA_BASE || `http://127.0.0.1:${process.env.PORT || 3000}/static/videos`;
 
@@ -19,7 +13,6 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 function listLocalMp4Samples() {
-  // backend/public/videos/*.mp4 → http://<host>:3000/static/videos/<file>.mp4
   const dir = path.join(__dirname, '..', 'public', 'videos');
   let files = [];
   try {
@@ -33,78 +26,6 @@ function listLocalMp4Samples() {
   return mp4s.map((f) => `${MEDIA_BASE}/${encodeURIComponent(f)}`);
 }
 
-const https = require('node:https');
-
-function httpsGetJson(url) {
-  return new Promise((resolve, reject) => {
-    https
-      .get(
-        url,
-        {
-          headers: {
-            'User-Agent': 'ReelVaultSeeder/1.0 (work-trial; contact: local)',
-            Accept: 'application/json',
-          },
-        },
-        (res) => {
-          let data = '';
-          res.on('data', (chunk) => (data += chunk));
-          res.on('end', () => {
-            try {
-              resolve(JSON.parse(data));
-            } catch (e) {
-              reject(e);
-            }
-          });
-        }
-      )
-      .on('error', reject);
-  });
-}
-
-async function fetchWikimediaMp4Urls({ limit = 24 } = {}) {
-  // Wikimedia Commons API note (2026): MIME search is disabled ("Miser Mode"),
-  // so we can't query by aimime. Instead we:
-  //  1) search in File namespace for titles that include ".mp4"
-  //  2) fetch imageinfo(url) for those titles
-  const searchUrl =
-    'https://commons.wikimedia.org/w/api.php' +
-    '?action=query' +
-    '&format=json' +
-    '&list=search' +
-    '&srnamespace=6' +
-    `&srlimit=${Math.min(limit, 50)}` +
-    // Search for MP4 in file titles (simple + works without MIME search).
-    '&srsearch=intitle:.mp4' +
-    '&origin=*';
-
-  const search = await httpsGetJson(searchUrl);
-  const titles =
-    (search?.query?.search ?? [])
-      .map((s) => s?.title)
-      .filter(Boolean)
-      .slice(0, limit) ?? [];
-  if (titles.length === 0) return [];
-
-  const infoUrl =
-    'https://commons.wikimedia.org/w/api.php' +
-    '?action=query' +
-    '&format=json' +
-    '&prop=imageinfo' +
-    '&iiprop=url' +
-    `&titles=${encodeURIComponent(titles.join('|'))}` +
-    '&origin=*';
-
-  const info = await httpsGetJson(infoUrl);
-  const pages = info?.query?.pages ?? {};
-  const urls = Object.values(pages)
-    .flatMap((p) => p?.imageinfo ?? [])
-    .map((ii) => ii?.url)
-    .filter((u) => typeof u === 'string' && u.toLowerCase().includes('.mp4'));
-
-  return [...new Set(urls)].slice(0, limit);
-}
-
 const THUMB = (i) => `https://picsum.photos/seed/reelvault${i}/400/600`;
 
 const SERIES = [
@@ -115,11 +36,8 @@ const SERIES = [
   { id: 'ser_05', title: 'Quiet Kitchens',  description: 'Slow, wordless cooking from grandmothers across five continents.' },
 ];
 
-// Spec compliance:
-// - Series length: 3–10 episodes per series
-// - Episode duration metadata: 2–10 minutes
-// - Reel duration metadata: 15–60 seconds
-const EPISODES_PER_SERIES = 5; // within 3–10
+// Spec ranges: 3-10 episodes/series, episode 2-10min, reel 15-60s.
+const EPISODES_PER_SERIES = 5;
 
 const randInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
 
@@ -128,14 +46,12 @@ const nowIso = () => new Date().toISOString();
 const upsert = async (table, columns, values, conflictKey) => {
   const placeholders = columns.map(() => '?').join(', ');
   if (db.driver === 'pg') {
-    // Use ON CONFLICT for pg
     const updates = columns.filter(c => c !== conflictKey).map(c => `${c}=EXCLUDED.${c}`).join(', ');
     await db.run(
       `INSERT INTO ${table} (${columns.join(', ')}) VALUES (${placeholders}) ON CONFLICT (${conflictKey}) DO UPDATE SET ${updates}`,
       values
     );
   } else {
-    // SQLite: INSERT OR REPLACE
     await db.run(
       `INSERT OR REPLACE INTO ${table} (${columns.join(', ')}) VALUES (${placeholders})`,
       values
@@ -144,10 +60,8 @@ const upsert = async (table, columns, values, conflictKey) => {
 };
 
 (async () => {
-  // Production safety guard. The seed script unconditionally wipes every table
-  // on every run. Without this guard, a stray `DATABASE_URL=...prod... npm run seed`
-  // destroys live user data. Override with ALLOW_DESTRUCTIVE_SEED=1 if you really
-  // mean it (e.g. first-time bootstrap of a fresh prod DB).
+  // This script DELETEs every table before reseeding. In prod, refuse unless
+  // someone explicitly opts in.
   if (process.env.NODE_ENV === 'production' && process.env.ALLOW_DESTRUCTIVE_SEED !== '1') {
     console.error(
       '❌ Refusing to run seed.js with NODE_ENV=production. This script wipes all tables.\n' +
@@ -169,7 +83,6 @@ const upsert = async (table, columns, values, conflictKey) => {
     );
   }
 
-  // Wipe existing rows for clean re-seed (gated above).
   await db.run('DELETE FROM watch_progress', []);
   await db.run('DELETE FROM reels', []);
   await db.run('DELETE FROM episodes', []);
@@ -191,7 +104,6 @@ const upsert = async (table, columns, values, conflictKey) => {
       const episodeId = `${series.id}_ep${e}`;
       const videoUrl = SAMPLES[sampleIdx % SAMPLES.length];
       sampleIdx++;
-      // Episode duration metadata: 2–10 minutes.
       const duration = randInt(120, 600);
 
       await upsert(
@@ -210,7 +122,8 @@ const upsert = async (table, columns, values, conflictKey) => {
         'id'
       );
 
-      // One reel per episode. Reel uses same sample video, but trimmed conceptually.
+      // One reel per episode. Reuses the same mp4 — at full production scale
+      // this would be a separately encoded short clip.
       const reelId = `${series.id}_reel${e}`;
       const reelDuration = randInt(15, 60);
       await upsert(

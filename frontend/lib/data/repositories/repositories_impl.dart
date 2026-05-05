@@ -166,8 +166,9 @@ class ProgressRepositoryImpl implements ProgressRepository {
     required int progressSeconds,
     required bool completed,
   }) async {
-    // MONOTONIC GUARD: if existing local progress is higher and we're not marking
-    // completed, keep the local value. This prevents stale callers from rewinding.
+    // Local-side monotonic guard. The server has its own (server.js
+    // upsertProgress); both are needed because a stale-Future PUT can lap a
+    // newer save mid-flight either direction.
     final existing = await (_db.select(_db.progressLocal)
           ..where((t) => t.episodeId.equals(episodeId)))
         .getSingleOrNull();
@@ -220,8 +221,6 @@ class ProgressRepositoryImpl implements ProgressRepository {
     return r?.progressSeconds ?? 0;
   }
 
-  // Chunk size for bulk sync. Keeps individual requests under a reasonable
-  // payload size and avoids a single huge write blocking other clients.
   static const int _bulkSyncChunkSize = 200;
 
   @override
