@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -62,12 +63,14 @@ class _ContinueWatchingScreenState extends State<ContinueWatchingScreen> {
                       const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   leading: ClipRRect(
                     borderRadius: BorderRadius.circular(6),
-                    child: Image.network(
-                      item.seriesThumb,
+                    child: CachedNetworkImage(
+                      imageUrl: item.seriesThumb,
                       width: 56,
                       height: 80,
                       fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) =>
+                      placeholder: (_, __) =>
+                          Container(width: 56, height: 80, color: Colors.grey.shade800),
+                      errorWidget: (_, __, ___) =>
                           Container(width: 56, height: 80, color: Colors.grey),
                     ),
                   ),

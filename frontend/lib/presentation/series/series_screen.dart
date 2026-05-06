@@ -1,3 +1,4 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -51,7 +52,13 @@ class SeriesScreen extends StatelessWidget {
               children: [
                 AspectRatio(
                   aspectRatio: 16 / 9,
-                  child: Image.network(s.thumbnailUrl, fit: BoxFit.cover),
+                  child: CachedNetworkImage(
+                    imageUrl: s.thumbnailUrl,
+                    fit: BoxFit.cover,
+                    placeholder: (_, __) => Container(color: Colors.grey.shade900),
+                    errorWidget: (_, __, ___) =>
+                        Container(color: Colors.grey.shade900),
+                  ),
                 ),
                 Padding(
                   padding: const EdgeInsets.all(16),
@@ -147,12 +154,14 @@ class _EpisodeTile extends StatelessWidget {
       child: ListTile(
         leading: ClipRRect(
           borderRadius: BorderRadius.circular(6),
-          child: Image.network(
-            episode.thumbnailUrl,
+          child: CachedNetworkImage(
+            imageUrl: episode.thumbnailUrl,
             width: 64,
             height: 64,
             fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) =>
+            placeholder: (_, __) =>
+                Container(width: 64, height: 64, color: Colors.grey.shade800),
+            errorWidget: (_, __, ___) =>
                 Container(width: 64, height: 64, color: Colors.grey),
           ),
         ),

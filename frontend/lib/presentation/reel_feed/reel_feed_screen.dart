@@ -1,6 +1,6 @@
-// lib/presentation/reel_feed/reel_feed_screen.dart
 import 'dart:async';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -103,8 +103,9 @@ class _ReelFeedScreenState extends State<ReelFeedScreen>
       if (i < 0 || i >= reels.length) continue;
       final url = reels[i].thumbnailUrl;
       if (url == null || url.isEmpty) continue;
-      // precacheImage requires a context; mounted check above already passed.
-      precacheImage(NetworkImage(url), context).catchError((_) {
+      // CachedNetworkImageProvider so the precache populates the disk cache,
+      // not just the in-memory ImageCache. Subsequent cold starts hit disk.
+      precacheImage(CachedNetworkImageProvider(url), context).catchError((_) {
         // Thumb fetch failed — gradient underlay handles it. Silent.
       });
     }
@@ -210,13 +211,16 @@ class _ReelTile extends StatelessWidget {
           ),
         ),
 
-        // Thumbnail. gaplessPlayback prevents a white flash during rapid scroll.
+        // Thumbnail. fadeInDuration: zero so we don't trade the spinner for a
+        // fade — placeholder is the gradient layer beneath, errors fall back
+        // to it too.
         if (reel.thumbnailUrl != null && reel.thumbnailUrl!.isNotEmpty)
-          Image.network(
-            reel.thumbnailUrl!,
+          CachedNetworkImage(
+            imageUrl: reel.thumbnailUrl!,
             fit: BoxFit.cover,
-            gaplessPlayback: true,
-            errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+            fadeInDuration: Duration.zero,
+            placeholder: (_, __) => const SizedBox.shrink(),
+            errorWidget: (_, __, ___) => const SizedBox.shrink(),
           ),
 
         // Video, full-bleed via FittedBox.cover. Anything else (Center +
