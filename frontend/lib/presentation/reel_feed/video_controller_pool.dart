@@ -12,6 +12,8 @@
 // dispose, and don't fire setActive() per-page-change — debounce via the
 // screen's 150ms scroll-settle.
 
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:video_player/video_player.dart';
 
@@ -22,6 +24,12 @@ class _Slot {
   final VideoPlayerController controller;
   Future<void> ready;
   bool disposed = false;
+  // Fires when this slot is disposed so any concurrent `await s.ready` can race
+  // and bail out. Without this, fast-scrolling past a slot that hasn't started
+  // initialize() yet leaves the ready Future pending forever — disposing the
+  // controller mid-init does NOT settle the platform initialize() future on
+  // some Android builds.
+  final Completer<void> disposeSignal = Completer<void>();
 
   _Slot(this.index, this.controller, this.ready);
 }
@@ -67,6 +75,10 @@ class VideoControllerPool {
         } catch (_) {}
         disposedNow.add(s.index);
         s.disposed = true;
+        // Unblock any concurrent setActive awaiting this slot's ready BEFORE
+        // disposing the controller, otherwise a pending platform initialize()
+        // future never settles and those awaits deadlock forever.
+        if (!s.disposeSignal.isCompleted) s.disposeSignal.complete();
         s.controller.dispose();
         return true;
       }
@@ -128,7 +140,9 @@ class VideoControllerPool {
       if (s.disposed) continue;
       if (s.index == index) {
         final waitStart = DateTime.now();
-        await s.ready;
+        // Race against disposeSignal — if a later setActive disposes this
+        // slot mid-init, we'd otherwise hang forever.
+        await Future.any([s.ready, s.disposeSignal.future]);
         final waitMs = DateTime.now().difference(waitStart).inMilliseconds;
         if (!s.disposed) {
           // initialize() can resolve "successfully" while the underlying codec
@@ -163,7 +177,7 @@ class VideoControllerPool {
         }
       } else {
         try {
-          await s.ready;
+          await Future.any([s.ready, s.disposeSignal.future]);
           if (!s.disposed) {
             if (s.controller.value.isInitialized) {
               _resumeByIndex[s.index] = s.controller.value.position;
@@ -191,7 +205,7 @@ class VideoControllerPool {
     final s = _slots.firstWhereOrNull((s) => s.index == _activeIndex);
     if (s != null && !s.disposed) {
       try {
-        await s.ready;
+        await Future.any([s.ready, s.disposeSignal.future]);
         if (!s.disposed) await s.controller.play();
       } catch (_) {}
     }
@@ -200,6 +214,7 @@ class VideoControllerPool {
   Future<void> disposeAll() async {
     for (final s in _slots) {
       s.disposed = true;
+      if (!s.disposeSignal.isCompleted) s.disposeSignal.complete();
       try {
         if (s.controller.value.isInitialized) {
           _resumeByIndex[s.index] = s.controller.value.position;
