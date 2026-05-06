@@ -80,9 +80,17 @@ class _ReelFeedScreenState extends State<ReelFeedScreen>
       if (!mounted) return;
       debugPrint('[feed] settled on $index — activating');
       _settledIndex = index;
-      _pool.setActive(index, reels.map((r) => r.videoUrl).toList());
+      // setActive resolves *after* the controller is initialized and play() has
+      // fired. We need a setState at that point — the immediate one below
+      // updates the thumbnail layer, but `showVideo` won't flip true until the
+      // controller reports isInitialized, and there's nothing else in the tree
+      // listening for that. Without this rebuild, fast-scrolled reels (where
+      // the active slot needs fresh init) get stuck on the thumbnail.
+      _pool.setActive(index, reels.map((r) => r.videoUrl).toList()).then((_) {
+        if (mounted) setState(() {});
+      });
       _warmAhead(reels, index);
-      setState(() {}); // rebuild to bind new active controller widget
+      setState(() {}); // immediate rebuild for thumbnail/active-index swap
     });
   }
 
