@@ -166,8 +166,12 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
     if (!mounted) return;
     if (next != null) {
       context.pushReplacement('/player/${_series!.id}/${next.id}');
-    } else {
+    } else if (context.canPop()) {
       context.pop();
+    } else {
+      // Player was opened directly (e.g. from Continue Watching) and there's
+      // nothing to pop back to. Send the user to the feed.
+      context.go('/feed');
     }
   }
 

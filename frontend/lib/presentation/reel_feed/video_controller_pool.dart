@@ -15,6 +15,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../main.dart' show kAppStartedAt;
@@ -135,8 +136,14 @@ class VideoControllerPool {
       '${disposedNow.isNotEmpty ? '  -disposed=$disposedNow' : ''}',
     );
 
+    // Snapshot _slots before iterating. If disposeAll() runs concurrently
+    // (user taps a navigation while we're mid-await), it clears _slots and
+    // a live for-each would throw ConcurrentModificationError. The snapshot
+    // is just a list of references; the per-slot s.disposed guard handles
+    // mutation of individual slots inside the loop.
+    final slotsSnapshot = List<_Slot>.from(_slots);
     // Activate the right one. Pause the others.
-    for (final s in _slots) {
+    for (final s in slotsSnapshot) {
       if (s.disposed) continue;
       if (s.index == index) {
         final waitStart = DateTime.now();
@@ -212,17 +219,34 @@ class VideoControllerPool {
   }
 
   Future<void> disposeAll() async {
-    for (final s in _slots) {
+    // Two-phase dispose. The screen has live ValueListenableBuilders pointing
+    // at these controllers; if we tore them down right now, the next frame's
+    // widget unmounts would call removeListener on a disposed ChangeNotifier
+    // and throw "used after being disposed."
+    //
+    // Phase 1 (sync): clear _slots and set disposed=true. controllerAt() now
+    // returns null, so the next build removes the conditional widgets cleanly.
+    // Persist resume positions before we lose access to the controllers.
+    final toDispose = List<_Slot>.from(_slots);
+    _slots.clear();
+    for (final s in toDispose) {
       s.disposed = true;
       if (!s.disposeSignal.isCompleted) s.disposeSignal.complete();
       try {
         if (s.controller.value.isInitialized) {
           _resumeByIndex[s.index] = s.controller.value.position;
         }
-        await s.controller.dispose();
       } catch (_) {}
     }
-    _slots.clear();
+    // Phase 2 (post-frame): controller.dispose() runs after the framework has
+    // unmounted any widgets that were listening to these controllers.
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      for (final s in toDispose) {
+        try {
+          s.controller.dispose();
+        } catch (_) {}
+      }
+    });
   }
 
   /// Used for assertions during tests / profiling.

@@ -160,15 +160,30 @@ class _ReelFeedScreenState extends State<ReelFeedScreen>
               final reel = state.reels[index];
               final controller = _pool.controllerAt(index);
               final isSettled = index == _settledIndex;
+              // Free the feed pool's hardware decoder slots before any in-app
+              // navigation. With only pauseActive we kept 3 codec instances
+              // reserved, and on Qualcomm c2.qti.avc that pushed concurrent
+              // allocations past the limit for some 1080p high-profile mp4s
+              // — the player would fail with "Couldn't load this episode."
+              // disposeAll persists resume positions in _resumeByIndex; the
+              // build's postFrameCallback re-creates the active slot on back.
+              //
+              // setState immediately so any in-flight tile renders bind to
+              // the now-null controllerAt() and don't try to attach listeners
+              // to a disposed ValueNotifier.
+              void leaveFeed() {
+                _pool.disposeAll();
+                if (mounted) setState(() {});
+                debugPrint('[feed] 🔖 navigating away — pool disposed, positions preserved');
+              }
+
               return _ReelTile(
                 reel: reel,
                 controller: controller,
                 showVideo: isSettled && controller != null && controller.value.isInitialized,
+                onLeaveFeed: leaveFeed,
                 onTapSeries: () {
-                  // Leaving the feed: pause and persist current reel position.
-                  _pool.pauseActive();
-                  debugPrint(
-                      '[feed] 🔖 navigating to series from reel #$index (ep=${reel.episodeId}) — position will be preserved');
+                  leaveFeed();
                   context.push(
                       '/series/${reel.seriesId}?fromEpisodeId=${reel.episodeId}');
                 },
@@ -186,12 +201,16 @@ class _ReelTile extends StatelessWidget {
   final VideoPlayerController? controller;
   final bool showVideo;
   final VoidCallback onTapSeries;
+  // Called BEFORE any navigation away from the feed so the pool can free
+  // its decoder slots — see disposeAll usage on Qualcomm AVC concurrency.
+  final VoidCallback onLeaveFeed;
 
   const _ReelTile({
     required this.reel,
     required this.controller,
     required this.showVideo,
     required this.onTapSeries,
+    required this.onLeaveFeed,
   });
 
   static String _fmt(Duration d) {
@@ -238,13 +257,19 @@ class _ReelTile extends StatelessWidget {
           GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTap: () {
-              final c = controller!;
-              if (!c.value.isInitialized) return;
-              if (c.value.isPlaying) {
-                c.pause();
-              } else {
-                c.play();
-              }
+              final c = controller;
+              if (c == null || !c.value.isInitialized) return;
+              // The closure captured `controller` at build time; if the pool
+              // disposed it between the build and this tap firing (fast scroll
+              // racing the gesture, or a navigation away mid-tap), pause/play
+              // on the disposed ValueNotifier throws. Treat as a no-op.
+              try {
+                if (c.value.isPlaying) {
+                  c.pause();
+                } else {
+                  c.play();
+                }
+              } catch (_) {}
             },
             child: SizedBox.expand(
               child: FittedBox(
@@ -365,12 +390,18 @@ class _ReelTile extends StatelessWidget {
                 tooltip: 'Open series',
               ),
               IconButton(
-                onPressed: () => context.push('/continue-watching'),
+                onPressed: () {
+                  onLeaveFeed();
+                  context.push('/continue-watching');
+                },
                 icon: const Icon(Icons.history, color: Colors.white, size: 30),
                 tooltip: 'Continue watching',
               ),
               IconButton(
-                onPressed: () => context.push('/downloads'),
+                onPressed: () {
+                  onLeaveFeed();
+                  context.push('/downloads');
+                },
                 icon: const Icon(Icons.download_outlined, color: Colors.white, size: 30),
                 tooltip: 'Downloads',
               ),
