@@ -60,9 +60,17 @@ This is the highest-risk subsystem, so it's worth explaining in detail.
 
 **Decoder-failure recovery.** As a defense in depth, if a slot's `controller.value.hasError` is true after `initialize()` resolves, the pool disposes it and recreates once before giving up. This catches transient codec hiccups without infinite retry loops (a `_retriedSlots` set guards against that).
 
+**Navigation-time disposal.** The 3-controller window is decoder-safe for steady-state scrolling, but when the user navigates from the feed into the player, the player tries to allocate a 4th decoder. On Qualcomm SoCs that pushed concurrent allocations past the device limit for some 1080p high-profile mp4s and the player would fail with "Couldn't load this episode." The fix: a `leaveFeed()` callback on each in-app navigation tap (series, continue-watching, downloads) that calls `pool.disposeAll()` and triggers a `setState`. The build's `addPostFrameCallback` re-creates the active slot on back, using the saved positions in `_resumeByIndex`.
+
+**Two-phase dispose.** `disposeAll()` can't tear down `VideoPlayerController` instances synchronously — the screen has live `ValueListenableBuilder`s pointing at them, and the next frame's widget unmounts call `removeListener` on the `ChangeNotifier` (which throws if it's already been disposed). Phase 1 clears `_slots` immediately so `controllerAt()` returns null, the next build removes the conditional widgets, and unmount can detach listeners cleanly. Phase 2 runs `controller.dispose()` in a `SchedulerBinding.addPostFrameCallback`, after the unmounts have completed.
+
+**Concurrent-mod safety.** `setActive()` snapshots `_slots` before its play/pause loop. If the user taps a navigation while a `setActive` is mid-await, `disposeAll()` clears the original list, and the loop carries on iterating the snapshot — the per-slot `s.disposed` guard handles the per-element bookkeeping.
+
+**Race-against-dispose in awaits.** Each slot owns a `Completer<void> disposeSignal` that fires when the slot is disposed. Every `await s.ready` is wrapped as `await Future.any([s.ready, s.disposeSignal.future])` so a slot that gets disposed mid-init (its `controller.initialize()` future never settles on some Android builds) doesn't deadlock the pool — the await unblocks, `s.disposed` is checked, the loop bails on this slot.
+
 The pool is independent of the BLoC — it's a plain Dart object owned by the screen's `State`. The BLoC reports the active index; the screen drives the pool. This separation matters: the BLoC stays pure (testable without Flutter), and the pool encapsulates the messy lifecycle.
 
-**Memory ceiling:** 3 controllers × N MB each, regardless of feed length. Verified — controller count stays at 3 throughout.
+**Memory ceiling:** 3 controllers × N MB each, regardless of feed length. Verified — controller count stays at 3 throughout, and drops to 0 when the user navigates away from the feed.
 
 ## Preloading and prefetch
 
@@ -72,7 +80,7 @@ Three layers of preload work together so swipes never wait on the network:
 
 2. **HTTP Range prefetch (active±2..±4).** Beyond the pool window, the screen calls `ApiClient.prefetchRange(url, bytes: 524287)` for the next 2-4 reels in both directions. This issues an HTTP `Range: bytes=0-524287` request for 512KB of each upcoming reel's video — enough to cover the mp4 moov atom plus several seconds of frames. The bytes land in the OS HTTP cache; when the user actually scrolls to those reels, ExoPlayer's internal HTTP layer finds the bytes already on disk and skips the network roundtrip. Backed by the backend's `Cache-Control: max-age=30d, immutable` headers on `/static/videos`. Dedup tracking on the `ApiClient` (`_prefetchInFlight` + `_prefetchDone`) prevents duplicate fetches.
 
-3. **Thumbnail precache (active-2..active+5).** While the user is on reel N, we walk N-2..N+5 and call `precacheImage(NetworkImage(thumbnailUrl), context)` for each. Thumbnails decode into Flutter's image cache so they render instantly when the user lands on those reels. Combined with the thumbnail-underlay rendering (see below), this is what makes the feed *feel* like Instagram — the user never sees a white spinner during transitions, only a real image with the video fading in over it.
+3. **Thumbnail precache (active-2..active+5).** While the user is on reel N, we walk N-2..N+5 and call `precacheImage(CachedNetworkImageProvider(thumbnailUrl), context)` for each. Using the `cached_network_image` provider (not bare `NetworkImage`) means thumbs land in both Flutter's in-memory image cache *and* the package's on-disk cache, so subsequent cold launches render thumbs instantly without re-fetching from picsum. Combined with the thumbnail-underlay rendering (see below), this is what makes the feed *feel* like Instagram — the user never sees a white spinner during transitions, only a real image with the video fading in over it.
 
 **Cold-start prefetch.** The first `/reels` page is also fetched eagerly during `setupLocator()`, before the bloc even mounts. The repository (`ReelRepositoryImpl`) caches the in-flight `Future` so when the bloc's `fetchReels(cursor: 0)` call arrives a few hundred ms later, it gets handed the same Future instead of issuing a duplicate request. This overlaps the HTTP roundtrip with Flutter framework boot and shaves a few hundred ms off the cold-start path on real hardware.
 

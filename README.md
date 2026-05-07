@@ -136,6 +136,8 @@ The pool keeps `{active-1, active, active+1}` — 3 controllers steady-state. On
 
 Scroll through 50+ reels (forward AND backward) and grep `flutter logs` for `[pool]`. `size=3` throughout, `[pool] ⚠ decoder error` count stays 0. The "paused neighbors" reasoning and the earlier forward-only experiment that informed it are in `ARCHITECTURE.md` under "Reel feed — controller lifecycle."
 
+When you tap into a series, downloads, or continue-watching, you'll see a `[feed] 🔖 navigating away — pool disposed, positions preserved` line. The pool drops to 0 controllers (so the player can claim a hardware decoder slot) and re-creates the active slot on back via the build's `addPostFrameCallback`. Resume positions stash in `_resumeByIndex` so you land on the same reel.
+
 ### Why no spinner during loading
 The reel tile is a 3-layer Stack — gradient (fallback), per-reel thumbnail (`thumbnail_url` from `/reels`), and the video on top. While the controller initializes, the user sees the thumbnail (instantly precached for N-2..N+5). Once the video is ready, it draws over the thumbnail full-bleed. There's no `CircularProgressIndicator` in the tile at all. Combined with bidirectional HTTP Range prefetch (warming the OS cache for N±2..N±4 reel video bytes) and `Cache-Control: max-age=30d, immutable` on `/static/videos`, transitions stay smooth even over WAN. See `ARCHITECTURE.md` "Preloading and prefetch" for the full layering.
 
