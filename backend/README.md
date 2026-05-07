@@ -1,18 +1,31 @@
 # ReelVault Backend
 
-Node + Express. Defaults to **SQLite** for zero-config local dev; flips to **Postgres** automatically if `DATABASE_URL` is set.
+Node + Express. Defaults to **SQLite** for zero-config local dev; flips to **Postgres** automatically if `DATABASE_URL` is set. Reel and episode video URLs are served from Pexels CDN — the backend stores URLs only, no mp4 hosting.
 
 ## Setup
 
 ```bash
 cd backend
 npm install
-npm run init-db   # creates schema
-npm run seed      # inserts 5 series, 25 episodes, 25 reels
-npm start         # http://localhost:3000
+npm run init-db                       # creates schema
+PEXELS_API_KEY=your_key npm run seed  # inserts 5 series, 25 episodes, 25 reels
+npm start                             # http://localhost:3000
 ```
 
-For Postgres: `DATABASE_URL=postgres://user:pass@host/db npm run init-db && npm run seed && npm start`.
+For Postgres: `DATABASE_URL=postgres://... PEXELS_API_KEY=your_key npm run seed`.
+
+The seed needs a free Pexels API key — sign up at <https://www.pexels.com/api/> (no card, instant). Per-series themed queries (space, city, ocean, workshop, cooking) fetch episode-length (2–10 min) and reel-length (15–60s) videos and store the Pexels CDN URLs directly. Responses are cached to `.cache/pexels.json` so re-seeds work offline / without a key.
+
+## Env vars
+
+| Var | Purpose |
+|---|---|
+| `DATABASE_URL` | If set, use Postgres; otherwise SQLite at `backend/reelvault.db`. |
+| `PORT` | HTTP port. Default `3000`. |
+| `PEXELS_API_KEY` | Required only when seeding (not at runtime). |
+| `NODE_ENV` | If `production`, the seed refuses to run unless `ALLOW_DESTRUCTIVE_SEED=1` is also set — protects live data from accidental wipes. |
+| `ALLOW_DESTRUCTIVE_SEED` | `1` to bypass the prod-guard. Only needed when seeding *on* a process where `NODE_ENV=production` is exported (Render shell, CI). |
+| `PGSSL` | `true` / `false` to override SSL behaviour. By default, SSL auto-enables for managed Postgres hosts (Render, Heroku, Neon, Supabase, Railway, Fly). |
 
 ## Endpoints
 

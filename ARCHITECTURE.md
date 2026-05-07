@@ -20,8 +20,10 @@ backend/src/
 ├── db.js                      driver abstraction: SQLite local / Postgres prod
 ├── init-db.js                 CLI: idempotent schema create
 ├── seed.js                    CLI: wipe + reseed (NODE_ENV=production refuses)
+├── lib/
+│   └── pexels.js              Pexels Videos API client (search + on-disk cache)
 ├── middleware/
-│   ├── compression.js         gzip JSON, skip /static/videos
+│   ├── compression.js         gzip JSON responses
 │   ├── userId.js              extracts x-user-id → req.userId (auth seam)
 │   └── errorHandler.js        sanitized 500 — no leaked stack traces
 ├── repositories/
@@ -78,7 +80,7 @@ Three layers of preload work together so swipes never wait on the network:
 
 1. **Pool preload (active+1, active-1).** Both neighbors hold real `VideoPlayerController`s with their first frames already initialized. Forward and backward swipes hit `waited 0ms` because the pool just calls `play()` on a controller that's already buffered.
 
-2. **HTTP Range prefetch (active±2..±4).** Beyond the pool window, the screen calls `ApiClient.prefetchRange(url, bytes: 524287)` for the next 2-4 reels in both directions. This issues an HTTP `Range: bytes=0-524287` request for 512KB of each upcoming reel's video — enough to cover the mp4 moov atom plus several seconds of frames. The bytes land in the OS HTTP cache; when the user actually scrolls to those reels, ExoPlayer's internal HTTP layer finds the bytes already on disk and skips the network roundtrip. Backed by the backend's `Cache-Control: max-age=30d, immutable` headers on `/static/videos`. Dedup tracking on the `ApiClient` (`_prefetchInFlight` + `_prefetchDone`) prevents duplicate fetches.
+2. **HTTP Range prefetch (active±2..±4).** Beyond the pool window, the screen calls `ApiClient.prefetchRange(url, bytes: 524287)` for the next 2-4 reels in both directions. This issues an HTTP `Range: bytes=0-524287` request for 512KB of each upcoming reel's video — enough to cover the mp4 moov atom plus several seconds of frames. The bytes land in the OS HTTP cache; when the user actually scrolls to those reels, ExoPlayer's internal HTTP layer finds the bytes already on disk and skips the network roundtrip. Pexels CDN serves the videos with their own long-lived cache headers and supports HTTP Range (`206 Partial Content` verified). Dedup tracking on the `ApiClient` (`_prefetchInFlight` + `_prefetchDone`) prevents duplicate fetches.
 
 3. **Thumbnail precache (active-2..active+5).** While the user is on reel N, we walk N-2..N+5 and call `precacheImage(CachedNetworkImageProvider(thumbnailUrl), context)` for each. Using the `cached_network_image` provider (not bare `NetworkImage`) means thumbs land in both Flutter's in-memory image cache *and* the package's on-disk cache, so subsequent cold launches render thumbs instantly without re-fetching from picsum. Combined with the thumbnail-underlay rendering (see below), this is what makes the feed *feel* like Instagram — the user never sees a white spinner during transitions, only a real image with the video fading in over it.
 
@@ -187,19 +189,20 @@ When the user taps a reel, the destination route includes `?fromEpisodeId=<id>`.
 
 The deployed backend (Render free tier, fronted by Cloudflare) is configured for cheap-but-effective wire-level wins:
 
-- **Brotli/gzip on JSON.** `compression()` middleware gzips `/reels`, `/series/:id`, `/progress/:id` etc. The `/static/videos` path is excluded — mp4 is already compressed and re-gzipping streams is wasteful + breaks Range. In practice, Cloudflare's edge applies Brotli on top, dropping a 6.4KB `/reels?limit=20` JSON to ~736 bytes (~88% reduction).
-- **Long Cache-Control on videos.** `/static` serves with `Cache-Control: public, max-age=2592000, immutable` plus `ETag`. Videos are content-stable (one mp4 per reel, never overwritten), so the device's HTTP cache pins them for 30 days. A re-watched reel skips the network entirely. Range requests (`bytes=0-N`) still return `206 Partial Content` correctly — the Express static handler is Range-aware out of the box.
-- **`thumbnail_url` in `/reels` response.** The endpoint now joins `episodes.thumbnail_url` so each reel item carries the URL of an image to display under the video while the controller initializes. No DB schema change — the column already existed in the `episodes` table.
+- **Brotli/gzip on JSON.** `compression()` middleware gzips `/reels`, `/series/:id`, `/progress/:id` etc. In practice, Cloudflare's edge applies Brotli on top, dropping a 6.4KB `/reels?limit=20` JSON to ~736 bytes (~88% reduction).
+- **Videos served from Pexels CDN.** `video_url` and `thumbnail_url` point directly at `videos.pexels.com` / `images.pexels.com`. The Express server doesn't proxy mp4 bytes — clients hit Pexels CDN edge directly. Pexels supplies its own cache headers (verified Range-friendly with `206 Partial Content`), so re-watched reels in the same session land in the device cache.
+- **`thumbnail_url` in `/reels` response.** The endpoint joins `episodes.thumbnail_url` so each reel item carries the URL of an image to display under the video while the controller initializes. No DB schema change — the column already existed in the `episodes` table.
 
 These three together are what enable the perceived-loading fixes on the client side (Range prefetch lands bytes into the cached path; thumbnails arrive in time to mask init waits).
 
 ## What breaks at scale (honest)
 
 1. **Single-user model** — backend hardcodes `demo-user`. Real auth would need JWT and a `users` table.
-2. **No origin CDN for videos.** Cloudflare fronts the host transparently (via Render's edge), but `cf-cache-status: DYNAMIC` confirms videos aren't edge-cached on the free tier — every byte still pulls from Render Singapore. A real R2 + CloudFront-style setup would put videos at edge POPs and cut WAN latency dramatically. The device-cache headers we set still help for re-watch within a session.
+2. **Third-party CDN dependency.** Videos and thumbnails are served by Pexels (`videos.pexels.com`, `images.pexels.com`). Pros: zero origin bandwidth, global edge, no LFS storage on our side. Cons: Pexels could remove a video, rate-limit the API, or change CDN URLs — none happens often, but a real product would mirror the chosen Pexels assets to its own object storage (R2 / S3 + CloudFront) for stability and to satisfy SLAs.
 3. **No retry/backoff** on individual progress writes — they rely on the bulk-sync net to catch them. Fine for a trial; in prod I'd add exponential backoff. Bulk sync itself is chunked into 200-row batches.
 4. **No video manifest negotiation** — we assume the URL plays. HLS/DASH adaptive bitrate is out of scope. A production app would ship a 720p reel rendition + HLS for adaptive bitrate.
 5. **Reel feed isn't locally cached** — the bloc fetches `/reels` over the network on every cold start (eager prefetch overlaps it with framework boot, but the network is still the bottleneck). Caching the last seen page in Drift would make subsequent cold starts effectively instant.
+6. **No ETag revalidation on metadata endpoints** — `/reels` and `/series/:id` always return full payloads. Adding `ETag` + `If-None-Match` (304 short-circuit) would save a round-trip's worth of bytes on subsequent fetches.
 
 ## Library choices, justified
 
@@ -214,7 +217,7 @@ These three together are what enable the perceived-loading fixes on the client s
 | Video | `video_player` | First-party Flutter plugin. `better_player` and `media_kit` are richer but heavier; for the controller-pool approach, the simpler API wins. |
 | Backend runtime | Node 18 + Express | Smallest possible footprint for the 5 endpoints the spec requires. No ORM — raw SQL via a thin driver wrapper keeps the monotonic-upsert logic visible in one file (`repositories/progressRepo.js`) so a reviewer can audit the conflict-resolution rule in 30 seconds. Layered structure (config / middleware / repositories / routes) keeps `server.js` ~50 lines so the composition is easy to scan. |
 | Backend DB | `better-sqlite3` (default) with `pg` adapter | SQLite means the reviewer can `npm i && npm run init-db && npm run seed` and have a working backend in 10 seconds, no docker, no Postgres install. The `pg` adapter is included so the same server file works against Postgres unchanged for a real deployment. |
-| Content source | Self-hosted MP4s in `backend/public/videos/` | Picked over Pexels/Pixabay/Mux for three reasons: (1) deterministic — the reviewer's airplane-mode test won't be confounded by a third-party CDN flake; (2) zero rate limits during stress-testing 100+ reels; (3) lets us prove "backend down → downloaded content still plays" cleanly because the only network dependency is our own Express server. 25 distinct mp4s ship in the repo, one per reel, so no video repeats in the feed. |
+| Content source | **Pexels Videos API** (free tier, free CDN) | The earliest version of this project shipped 25 self-hosted mp4s tracked via Git LFS so a reviewer's clone-and-run was deterministic. That broke down once the spec demanded *episodes 2-10 min* and *reels 15-60s* with content that actually reflected those durations — Git LFS quotas + repo size made shipping ~150 MB of long-form content per reviewer untenable. Pexels exposes a free Videos API (200 req/hr, no card) with consistent encoding and supports per-query duration filters (`min_duration`, `max_duration`), which is exactly what the spec asks for. The `pexels.js` picker hard-caps renditions at 1920×1080 to stay within mobile decoder limits (Qualcomm c2.qti.avc stalls on oversized H.264 like 2048×988). Per-series themed queries (space, city, ocean, workshop, cooking) populate 5 episodes + 5 reels per series. URLs are stored verbatim in Postgres; the device hits Pexels CDN directly, no origin bandwidth on our side. Trade-off: a Pexels video could disappear or change URL — for a take-home this is acceptable; a production app would mirror the chosen assets to its own object storage. |
 
 ## Scope cuts
 

@@ -1,17 +1,54 @@
-# reelvault
+# ReelVault Frontend
 
-A new Flutter project.
+Flutter app (iOS + Android). Talks to the deployed Render backend by default — `https://reelvault-umr4.onrender.com`. Override via `--dart-define=API_BASE_URL=...` when targeting a local backend.
 
-## Getting Started
+## Setup
 
-This project is a starting point for a Flutter application.
+```bash
+cd frontend
+flutter pub get
+dart run build_runner build --delete-conflicting-outputs   # Drift codegen
+flutter run
+```
 
-A few resources to get you started if this is your first Flutter project:
+That's it. The app fetches reels from the live backend out of the box.
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+## Backend URL by target
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+| Target | Command |
+|---|---|
+| **Default (deployed Render)** | `flutter run` |
+| Android emulator → local | `flutter run --dart-define=API_BASE_URL=http://10.0.2.2:3000` |
+| iOS simulator → local | `flutter run --dart-define=API_BASE_URL=http://localhost:3000` |
+| Real device → local | `flutter run --dart-define=API_BASE_URL=http://<your-LAN-ip>:3000` |
+
+## Architecture overview
+
+```
+lib/
+├── core/             DI (get_it), router (go_router), networking (dio), storage (drift), connectivity
+├── domain/           Pure-Dart entities + repository interfaces
+├── data/             Repository implementations, remote data source, local cache
+└── presentation/     Screens, BLoCs, widgets
+```
+
+The presentation layer talks only to the domain layer's repository interfaces. The data layer satisfies them. Swapping backend or storage engine never touches presentation code.
+
+Detailed coverage of the controller pool, scroll-settle, preload strategy, lifecycle, monotonic progress, and offline sync is in the project-root [`ARCHITECTURE.md`](../ARCHITECTURE.md).
+
+## Building a release APK
+
+```bash
+flutter build apk --release
+# output: build/app/outputs/flutter-apk/app-release.apk
+```
+
+To target a custom backend at build time:
+
+```bash
+flutter build apk --release --dart-define=API_BASE_URL=https://your-staging-backend.com
+```
+
+## Project root README
+
+For setup of both backend and frontend together, deployment to Render, and per-feature manual tests, see the [project-root README](../README.md).

@@ -12,7 +12,7 @@ reelvault/
 
 ## Quick start (already deployed)
 
-The backend is live at **https://reelvault-umr4.onrender.com**, fronted by Render's free tier with managed Postgres and HTTPS. The Flutter app's default `API_BASE_URL` already points at it.
+The backend is live at **https://reelvault-umr4.onrender.com**, fronted by Render's free tier with managed Postgres and HTTPS. The Flutter app's default `API_BASE_URL` already points at it. Video and thumbnail URLs in the API responses are external Pexels CDN URLs (`videos.pexels.com`, `images.pexels.com`) — the backend stores only the URLs; clients stream directly from Pexels.
 
 ```bash
 cd frontend
@@ -33,19 +33,21 @@ Most users **don't need this**. The deployed Render backend is already serving e
 
 If you want to run the backend locally:
 
-Requirements: Node **18+** (Node 20 LTS or 22 LTS recommended; Node 24 also works with the prebuilt binaries we depend on).
+Requirements: Node **18+** (Node 20 LTS or 22 LTS recommended; Node 24 also works with the prebuilt binaries we depend on). The seed step needs a free Pexels API key — sign up at <https://www.pexels.com/api/> (no card required, takes 30 seconds, instant key).
 
 ### macOS / Linux (bash, zsh)
 
 ```bash
 cd backend
 npm install
-npm run init-db     # creates reelvault.db (SQLite)
-npm run seed        # 5 series × 5 episodes + 25 reels
-npm start           # http://localhost:3000
+npm run init-db                      # creates reelvault.db (SQLite)
+PEXELS_API_KEY=your_key npm run seed # 5 series × 5 episodes + 25 reels
+npm start                            # http://localhost:3000
 ```
 
 > **Seed safety guard.** `seed.js` wipes every table on each run. To prevent accidental prod data loss, it refuses to run when `NODE_ENV=production` unless `ALLOW_DESTRUCTIVE_SEED=1` is also set. Local dev (no `NODE_ENV` set) runs unblocked.
+
+> **Pexels response cache.** The seed caches Pexels API responses to `backend/.cache/pexels.json`. Reseeds reuse the cache, so once you've seeded once you can re-seed offline / without a key.
 
 Verify:
 
@@ -57,7 +59,7 @@ curl 'http://localhost:3000/reels?limit=3'
 # {"items":[...3 reels...],"next_cursor":3}
 ```
 
-To use Postgres instead: `DATABASE_URL=postgres://... npm run init-db && npm run seed && npm start`.
+To use Postgres instead: `DATABASE_URL=postgres://... npm run init-db && PEXELS_API_KEY=your_key npm run seed && npm start`.
 
 ### Windows (PowerShell)
 
@@ -67,6 +69,7 @@ Windows PowerShell 5.1 (the default) does **not** support `&&`, so run each step
 cd backend
 npm install
 npm run init-db
+$env:PEXELS_API_KEY = "your_key"
 npm run seed
 npm start
 ```
@@ -80,10 +83,11 @@ curl.exe http://localhost:3000/health
 Invoke-RestMethod 'http://localhost:3000/reels?limit=3'
 ```
 
-For Postgres, set `DATABASE_URL` for the current session before running each step:
+For Postgres, set `DATABASE_URL` (and `PEXELS_API_KEY` if seeding) for the current session before running each step:
 
 ```powershell
 $env:DATABASE_URL = "postgres://user:pass@host:5432/reelvault"
+$env:PEXELS_API_KEY = "your_key"
 npm run init-db
 npm run seed
 npm start
@@ -139,7 +143,7 @@ Scroll through 50+ reels (forward AND backward) and grep `flutter logs` for `[po
 When you tap into a series, downloads, or continue-watching, you'll see a `[feed] 🔖 navigating away — pool disposed, positions preserved` line. The pool drops to 0 controllers (so the player can claim a hardware decoder slot) and re-creates the active slot on back via the build's `addPostFrameCallback`. Resume positions stash in `_resumeByIndex` so you land on the same reel.
 
 ### Why no spinner during loading
-The reel tile is a 3-layer Stack — gradient (fallback), per-reel thumbnail (`thumbnail_url` from `/reels`), and the video on top. While the controller initializes, the user sees the thumbnail (instantly precached for N-2..N+5). Once the video is ready, it draws over the thumbnail full-bleed. There's no `CircularProgressIndicator` in the tile at all. Combined with bidirectional HTTP Range prefetch (warming the OS cache for N±2..N±4 reel video bytes) and `Cache-Control: max-age=30d, immutable` on `/static/videos`, transitions stay smooth even over WAN. See `ARCHITECTURE.md` "Preloading and prefetch" for the full layering.
+The reel tile is a 3-layer Stack — gradient (fallback), per-reel thumbnail (`thumbnail_url` from `/reels`, served by `images.pexels.com`), and the video on top (served by `videos.pexels.com`). While the controller initializes, the user sees the thumbnail (instantly precached for N-2..N+5). Once the video is ready, it draws over the thumbnail full-bleed. There's no `CircularProgressIndicator` in the tile at all. Combined with bidirectional HTTP Range prefetch (warming the OS cache for N±2..N±4 reel video bytes — Pexels CDN supports `206 Partial Content`), transitions stay smooth even over WAN. See `ARCHITECTURE.md` "Preloading and prefetch" for the full layering.
 
 ### Series navigation + scroll preservation
 - Scroll to reel 7. Tap the playlist icon. Series view opens.
@@ -241,27 +245,22 @@ The current backend is hosted on Render. To replicate from scratch:
 3. **Render → New Web Service** → connect repo → Root Directory `backend` → Build `npm install` → Start `npm start`. Add env vars:
    - `DATABASE_URL` = External Postgres URL
    - `NODE_ENV` = `production`
-   - `REELVAULT_MEDIA_BASE` = `https://<your-render-url>/static/videos`
-4. **Initialize schema + seed** by running locally against the remote DB (Render free tier blocks Shell):
+4. **Initialize schema + seed** by running locally against the remote DB (Render free tier blocks Shell). The seed needs a free Pexels API key (<https://www.pexels.com/api/>):
 
    ```bash
    cd backend
 
    # Init schema — idempotent, safe to re-run.
-   DATABASE_URL='<external-postgres-url>' \
-   REELVAULT_MEDIA_BASE='https://<your-render-url>/static/videos' \
-     node src/init-db.js
+   DATABASE_URL='<external-postgres-url>' node src/init-db.js
 
-   # Seed data — destructive (wipes tables). The prod-guard refuses to run
-   # if NODE_ENV=production is set, so override with ALLOW_DESTRUCTIVE_SEED=1
-   # for the first-time seed of a fresh prod DB.
+   # Seed data — destructive (wipes tables). Hits Pexels API the first
+   # time, then caches responses to .cache/pexels.json for reruns.
    DATABASE_URL='<external-postgres-url>' \
-   REELVAULT_MEDIA_BASE='https://<your-render-url>/static/videos' \
-   ALLOW_DESTRUCTIVE_SEED=1 \
+   PEXELS_API_KEY='<your-pexels-key>' \
      node src/seed.js
    ```
 
-   > Why `ALLOW_DESTRUCTIVE_SEED=1` is needed: if your shell has `NODE_ENV=production` exported (or you're running this from a CI environment that sets it), the guard added in `seed.js` will refuse the run to protect live data. Without `NODE_ENV=production` set, the guard is inert and the variable isn't required.
+   > **Why no `ALLOW_DESTRUCTIVE_SEED=1`?** When you run the seed locally (laptop, no `NODE_ENV` set), the prod-guard is inert. The opt-in is only needed if you're running the seed *on a process where `NODE_ENV=production` is already exported* — e.g. inside a Render shell or CI job — to protect live data from accidental wipes.
 
 5. **Update** `frontend/lib/core/di/service_locator.dart`: change `defaultValue` on the `kBaseUrl` constant to your new URL, or pass `--dart-define=API_BASE_URL=...` at build time.
 
