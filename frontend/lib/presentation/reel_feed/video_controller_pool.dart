@@ -109,7 +109,9 @@ class VideoControllerPool {
           controller.setLooping(true);
           final ms = DateTime.now().difference(initStart).inMilliseconds;
           final tag = ms > 3000 ? '🐢 SLOW' : '✓';
-          debugPrint('[pool]   $tag initialized #$i (active) in ${ms}ms — $shortUrl');
+          final dur = controller.value.duration;
+          final durTag = dur <= Duration.zero ? '⚠ ZERO' : '${dur.inSeconds}s';
+          debugPrint('[pool]   $tag initialized #$i (active) in ${ms}ms  player_dur=$durTag — $shortUrl');
         }).catchError((e, st) {
           debugPrint('[pool]   ✗ init failed for #$i ($shortUrl): $e');
         });
@@ -120,7 +122,9 @@ class VideoControllerPool {
             controller.setLooping(true);
             final ms = DateTime.now().difference(initStart).inMilliseconds;
             final tag = ms > 3000 ? '🐢 SLOW' : '✓';
-            debugPrint('[pool]   $tag initialized #$i (preload) in ${ms}ms — $shortUrl');
+            final dur = controller.value.duration;
+            final durTag = dur <= Duration.zero ? '⚠ ZERO' : '${dur.inSeconds}s';
+            debugPrint('[pool]   $tag initialized #$i (preload) in ${ms}ms  player_dur=$durTag — $shortUrl');
           }).catchError((e, st) {
             debugPrint('[pool]   ✗ init failed for #$i ($shortUrl): $e');
           });

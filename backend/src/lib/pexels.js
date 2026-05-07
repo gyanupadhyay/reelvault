@@ -23,11 +23,24 @@ function saveCache(cache) {
 
 // Pexels returns multiple renditions per video. Prefer 720p H.264 — small enough
 // to stream over a phone connection, large enough to look fine on a phone screen.
+//
+// Hard ceiling: width <= 1920 AND height <= 1080. Mobile AVC decoders
+// (Qualcomm c2.qti.avc et al) advertise Level 5+ but stall on oversized
+// renditions like Pexels' 2048x988 — codec configures but never commits a
+// frame, so VideoPlayer never reports isInitialized and the video tile shows
+// only the thumbnail.
 function pickVideoFile(files) {
-  const mp4s = files.filter((f) => f.file_type === 'video/mp4');
+  const mp4s = files.filter(
+    (f) =>
+      f.file_type === 'video/mp4' &&
+      f.width &&
+      f.height &&
+      f.width <= 1920 &&
+      f.height <= 1080
+  );
   return (
     mp4s.find((f) => f.height === 720 && f.quality === 'hd') ||
-    mp4s.find((f) => f.quality === 'hd' && f.height && f.height <= 1080) ||
+    mp4s.find((f) => f.quality === 'hd') ||
     mp4s.find((f) => f.quality === 'sd') ||
     mp4s[0]
   );

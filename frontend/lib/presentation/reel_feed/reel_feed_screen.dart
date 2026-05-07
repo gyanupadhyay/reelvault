@@ -87,7 +87,15 @@ class _ReelFeedScreenState extends State<ReelFeedScreen>
       // listening for that. Without this rebuild, fast-scrolled reels (where
       // the active slot needs fresh init) get stuck on the thumbnail.
       _pool.setActive(index, reels.map((r) => r.videoUrl).toList()).then((_) {
-        if (mounted) setState(() {});
+        if (mounted) {
+          final reel = reels[index];
+          final c = _pool.controllerAt(index);
+          final playerDur = c?.value.duration ?? Duration.zero;
+          final tag = playerDur <= Duration.zero ? '⚠ ZERO' : '${playerDur.inSeconds}s';
+          debugPrint(
+              '[feed] active reel=${reel.id}  api_dur=${reel.durationSec}s  player_dur=$tag  url=${reel.videoUrl}');
+          setState(() {});
+        }
       });
       _warmAhead(reels, index);
       setState(() {}); // immediate rebuild for thumbnail/active-index swap
@@ -213,13 +221,6 @@ class _ReelTile extends StatelessWidget {
     required this.onLeaveFeed,
   });
 
-  static String _fmt(Duration d) {
-    if (d.isNegative) d = Duration.zero;
-    final m = d.inMinutes;
-    final s = d.inSeconds.remainder(60);
-    return '$m:${s.toString().padLeft(2, '0')}';
-  }
-
   @override
   Widget build(BuildContext context) {
     // Lift overlays above the gesture bar / 3-button nav.
@@ -315,43 +316,7 @@ class _ReelTile extends StatelessWidget {
             left: 0,
             right: 0,
             bottom: bottomInset + 0,
-            child: ValueListenableBuilder<VideoPlayerValue>(
-              valueListenable: controller!,
-              builder: (context, v, _) {
-                final dur = v.duration;
-                final pos = v.position;
-                final value = dur.inMilliseconds <= 0
-                    ? null
-                    : (pos.inMilliseconds / dur.inMilliseconds).clamp(0.0, 1.0);
-                return Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(2),
-                        child: LinearProgressIndicator(
-                          value: value,
-                          minHeight: 3,
-                          backgroundColor: Colors.white24,
-                          valueColor: const AlwaysStoppedAnimation<Color>(Colors.white70),
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        '${_fmt(pos)} / ${_fmt(dur)}',
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 11,
-                          fontFeatures: [FontFeature.tabularFigures()],
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
+            child: _ReelTimestampOverlay(reel: reel, controller: controller!),
           ),
 
         // Bottom-left overlay
@@ -439,6 +404,128 @@ class _ErrorView extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Timestamp + progress overlay for the active reel.
+///
+/// We can't trust ExoPlayer's reported `position`/`duration` for some Pexels
+/// SD encodes — duration comes back sub-second (microseconds) and position
+/// stays at 0 even while frames advance. The fallbacks here use the API
+/// duration and a wall-clock stopwatch synced to play/pause. Once the player
+/// ever reports a real (≥1s) position, we trust it forever (`_seenRealPos`).
+class _ReelTimestampOverlay extends StatefulWidget {
+  final Reel reel;
+  final VideoPlayerController controller;
+
+  const _ReelTimestampOverlay({required this.reel, required this.controller});
+
+  @override
+  State<_ReelTimestampOverlay> createState() => _ReelTimestampOverlayState();
+}
+
+class _ReelTimestampOverlayState extends State<_ReelTimestampOverlay> {
+  final Stopwatch _wallclock = Stopwatch();
+  Timer? _ticker;
+  bool _seenRealPos = false;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_onValue);
+    // ValueListenableBuilder won't rebuild while position is stuck at 0, so
+    // drive a periodic rebuild ourselves while we're using the wallclock.
+    _ticker = Timer.periodic(const Duration(milliseconds: 200), (_) {
+      if (!mounted) return;
+      if (!_seenRealPos && widget.controller.value.isPlaying) {
+        setState(() {});
+      }
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant _ReelTimestampOverlay old) {
+    super.didUpdateWidget(old);
+    if (old.controller != widget.controller) {
+      old.controller.removeListener(_onValue);
+      widget.controller.addListener(_onValue);
+      _wallclock.stop();
+      _wallclock.reset();
+      _seenRealPos = false;
+    }
+  }
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    widget.controller.removeListener(_onValue);
+    super.dispose();
+  }
+
+  void _onValue() {
+    final v = widget.controller.value;
+    if (v.position.inSeconds > 0) _seenRealPos = true;
+    if (v.isPlaying && !_wallclock.isRunning) {
+      _wallclock.start();
+    } else if (!v.isPlaying && _wallclock.isRunning) {
+      _wallclock.stop();
+    }
+  }
+
+  Duration _wallclockMod(Duration apiDur) {
+    if (apiDur.inMilliseconds <= 0) return _wallclock.elapsed;
+    final ms = _wallclock.elapsedMilliseconds % apiDur.inMilliseconds;
+    return Duration(milliseconds: ms);
+  }
+
+  static String _fmt(Duration d) {
+    if (d.isNegative) d = Duration.zero;
+    final m = d.inMinutes;
+    final s = d.inSeconds.remainder(60);
+    return '$m:${s.toString().padLeft(2, '0')}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<VideoPlayerValue>(
+      valueListenable: widget.controller,
+      builder: (context, v, _) {
+        final dur = v.duration.inSeconds > 0
+            ? v.duration
+            : Duration(seconds: widget.reel.durationSec);
+        final pos = _seenRealPos ? v.position : _wallclockMod(dur);
+        final value = dur.inMilliseconds <= 0
+            ? null
+            : (pos.inMilliseconds / dur.inMilliseconds).clamp(0.0, 1.0);
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(2),
+                child: LinearProgressIndicator(
+                  value: value,
+                  minHeight: 3,
+                  backgroundColor: Colors.white24,
+                  valueColor: const AlwaysStoppedAnimation<Color>(Colors.white70),
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                '${_fmt(pos)} / ${_fmt(dur)}',
+                style: const TextStyle(
+                  color: Colors.white70,
+                  fontSize: 11,
+                  fontFeatures: [FontFeature.tabularFigures()],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

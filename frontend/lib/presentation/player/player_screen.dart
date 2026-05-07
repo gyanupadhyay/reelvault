@@ -326,17 +326,25 @@ class _PlayerScreenState extends State<PlayerScreen> with WidgetsBindingObserver
                   const SizedBox(height: 4),
                   ValueListenableBuilder<VideoPlayerValue>(
                     valueListenable: c,
-                    builder: (_, v, __) => Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(_fmt(v.position),
-                            style:
-                                const TextStyle(color: Colors.white70, fontSize: 12)),
-                        Text('-${_fmt(v.duration - v.position)}',
-                            style:
-                                const TextStyle(color: Colors.white70, fontSize: 12)),
-                      ],
-                    ),
+                    builder: (_, v, __) {
+                      // ExoPlayer can return a sub-second bogus duration before
+                      // the timeline is parsed. Check inSeconds, not just
+                      // `> Duration.zero`, or the fallback never fires.
+                      final dur = v.duration.inSeconds > 0
+                          ? v.duration
+                          : Duration(seconds: _episode?.durationSec ?? 0);
+                      return Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(_fmt(v.position),
+                              style:
+                                  const TextStyle(color: Colors.white70, fontSize: 12)),
+                          Text('-${_fmt(dur - v.position)}',
+                              style:
+                                  const TextStyle(color: Colors.white70, fontSize: 12)),
+                        ],
+                      );
+                    },
                   ),
                 ],
               ),
