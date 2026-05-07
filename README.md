@@ -17,7 +17,7 @@ The backend is live at **https://reelvault-umr4.onrender.com**, fronted by Rende
 ```bash
 cd frontend
 flutter pub get
-dart run build_runner build --delete-conflicting-outputs
+dart run build_runner build
 flutter run                  # talks to the live backend, zero flags needed
 ```
 
@@ -102,7 +102,7 @@ npm start
 ```bash
 cd frontend
 flutter pub get
-dart run build_runner build --delete-conflicting-outputs   # generates Drift code
+dart run build_runner build   # generates Drift code
 flutter run
 ```
 
@@ -158,7 +158,7 @@ The reel tile is a 3-layer Stack — gradient (fallback), per-reel thumbnail (`t
 - Back back back to feed — you're still on reel 7.
 
 ### Series header info
-- The header shows `5 episodes · ~22 min total` (sum of `episode.duration_sec`).
+- The header shows `5 episodes · X min total` — `X` is the live sum of `episode.duration_sec` for that series. With the current Pexels seed it lands in the 10–15 min range per series (varies because Pexels per-clip durations aren't uniform).
 
 ### Player controls
 - Tap the video to toggle controls. The control overlay shows: ⏮️ prev episode · ⏪ -10s · ▶️/⏸️ · ⏩ +10s · ⏭️ next episode (centered), and `0.5x–2x` speed picker + ⛶ fullscreen toggle (top-right).
@@ -279,7 +279,7 @@ The current backend is hosted on Render. To replicate from scratch:
 - Picture-in-picture (P2 in spec)
 - Category filtering / search (P2)
 - Pull-to-refresh on reel feed (P2)
-- Series-level "download all" button (per-episode works; bulk *delete* is implemented)
+- Series-level "download all" button — per-episode download works (the spec's "download controls (per-episode or full-series)" wording allows either). Bulk *delete* does ship; the parallel bulk *download* would be a small follow-up.
 - Real auth — uses `x-user-id: demo-user`
 
 ---
@@ -371,6 +371,9 @@ lsof -ti:3000 | xargs kill -9
 | User identity middleware (auth seam) | `backend/src/middleware/userId.js` |
 | Offline → online sync | `frontend/lib/core/di/service_locator.dart` (the connectivity listener at the bottom) |
 | Cold-start offline detection | `frontend/lib/core/network/connectivity_service.dart` (`checkConnectivity()` seed in constructor) |
+| Reel-feed cache (cold-start) | `frontend/lib/data/repositories/repositories_impl.dart` (`ReelRepositoryImpl._writeCache`, `getCachedReels`) + `frontend/lib/presentation/reel_feed/reel_feed_bloc.dart` (`_onStarted` two-phase emit) |
+| Wall-clock fallback for stuck `v.duration` / `v.position` | `frontend/lib/presentation/reel_feed/reel_feed_screen.dart` (`_ReelTimestampOverlay`) |
+| Pexels rendition picker (1920×1080 mobile-decoder cap) | `backend/src/lib/pexels.js` (`pickVideoFile`) |
 | Resumable downloads | `frontend/lib/data/repositories/download_repository_impl.dart` |
 | Bulk-delete series downloads | `frontend/lib/presentation/series/series_bloc.dart` (`DeleteAllSeriesDownloads`) |
 | Player: fullscreen, prev/next, time labels, offline error | `frontend/lib/presentation/player/player_screen.dart` |

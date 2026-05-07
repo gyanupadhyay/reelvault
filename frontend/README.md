@@ -7,7 +7,7 @@ Flutter app (iOS + Android). Talks to the deployed Render backend by default —
 ```bash
 cd frontend
 flutter pub get
-dart run build_runner build --delete-conflicting-outputs   # Drift codegen
+dart run build_runner build   # Drift codegen
 flutter run
 ```
 
