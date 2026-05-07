@@ -197,7 +197,9 @@ class DownloadRepositoryImpl implements DownloadRepository {
     return DownloadStatus(
       episodeId: episodeId,
       state: _stateFromString(r.state),
-      progress: r.progress,
+      // Heal rows poisoned by an older build that persisted background_downloader's
+      // sentinel negative progress (e.g. -5.0 for paused).
+      progress: r.progress < 0 ? 0 : r.progress,
       bytesDownloaded: r.bytesDownloaded,
       totalBytes: r.totalBytes,
       localPath: r.localPath,
@@ -253,6 +255,12 @@ class DownloadRepositoryImpl implements DownloadRepository {
   }
 
   Future<void> _onProgress(TaskProgressUpdate event) async {
+    // background_downloader signals non-running states with sentinel negative
+    // progress (paused = -5, canceled = -2, failed = -1, etc). Persisting those
+    // would make the UI render "-500%". Status transitions are handled in
+    // _onStatus, so just drop sentinel updates here and keep the last real
+    // progress so a resumed download picks up where it left off.
+    if (event.progress < 0) return;
     final episodeId = event.task.taskId;
     await (_db.update(_db.downloads)..where((t) => t.episodeId.equals(episodeId)))
         .write(DownloadsCompanion(
@@ -287,7 +295,7 @@ class DownloadRepositoryImpl implements DownloadRepository {
         DownloadStatus(
           episodeId: r.episodeId,
           state: _stateFromString(r.state),
-          progress: r.progress,
+          progress: r.progress < 0 ? 0 : r.progress,
           bytesDownloaded: r.bytesDownloaded,
           totalBytes: r.totalBytes,
           localPath: r.localPath,
