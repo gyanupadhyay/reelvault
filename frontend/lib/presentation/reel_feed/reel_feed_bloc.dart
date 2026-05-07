@@ -1,5 +1,6 @@
 // lib/presentation/reel_feed/reel_feed_bloc.dart
 import 'package:equatable/equatable.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../domain/entities/reel.dart';
@@ -73,12 +74,35 @@ class ReelFeedBloc extends Bloc<ReelFeedEvent, ReelFeedState> {
   }
 
   Future<void> _onStarted(ReelFeedStarted e, Emitter<ReelFeedState> emit) async {
-    emit(state.copyWith(loading: true, clearError: true));
+    // Phase 1 — fast path. Read cached reels from Drift and emit immediately so
+    // the feed renders before the network responds. nextCursor stays null
+    // (=> "we don't know yet") so pagination is gated on the network result.
+    try {
+      final cached = await _repo.getCachedReels();
+      if (cached.isNotEmpty) {
+        debugPrint('[reels] ⚡ rendering ${cached.length} cached reels (network refresh in flight)');
+        emit(state.copyWith(reels: cached, loading: true, clearError: true));
+      } else {
+        emit(state.copyWith(loading: true, clearError: true));
+      }
+    } catch (_) {
+      // Cache read failed — go straight to network.
+      emit(state.copyWith(loading: true, clearError: true));
+    }
+
+    // Phase 2 — network refresh. Always run; on success, replace state with
+    // fresh data + real nextCursor. On error, keep cached reels visible (don't
+    // surface a red banner if we already showed something).
     try {
       final r = await _repo.fetchReels(cursor: 0, limit: 20);
       emit(state.copyWith(reels: r.items, nextCursor: r.nextCursor, loading: false));
     } catch (err) {
-      emit(state.copyWith(loading: false, error: err.toString()));
+      if (state.reels.isEmpty) {
+        emit(state.copyWith(loading: false, error: err.toString()));
+      } else {
+        debugPrint('[reels] ⚠ network refresh failed; keeping cached reels visible: $err');
+        emit(state.copyWith(loading: false));
+      }
     }
   }
 

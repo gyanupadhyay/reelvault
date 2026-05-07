@@ -3,6 +3,539 @@
 part of 'app_database.dart';
 
 // ignore_for_file: type=lint
+class $CachedReelsTable extends CachedReels
+    with TableInfo<$CachedReelsTable, CachedReel> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $CachedReelsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+      'id', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _seriesIdMeta =
+      const VerificationMeta('seriesId');
+  @override
+  late final GeneratedColumn<String> seriesId = GeneratedColumn<String>(
+      'series_id', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _episodeIdMeta =
+      const VerificationMeta('episodeId');
+  @override
+  late final GeneratedColumn<String> episodeId = GeneratedColumn<String>(
+      'episode_id', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _videoUrlMeta =
+      const VerificationMeta('videoUrl');
+  @override
+  late final GeneratedColumn<String> videoUrl = GeneratedColumn<String>(
+      'video_url', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _durationSecMeta =
+      const VerificationMeta('durationSec');
+  @override
+  late final GeneratedColumn<int> durationSec = GeneratedColumn<int>(
+      'duration_sec', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _rankMeta = const VerificationMeta('rank');
+  @override
+  late final GeneratedColumn<int> rank = GeneratedColumn<int>(
+      'rank', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _seriesTitleMeta =
+      const VerificationMeta('seriesTitle');
+  @override
+  late final GeneratedColumn<String> seriesTitle = GeneratedColumn<String>(
+      'series_title', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _episodeTitleMeta =
+      const VerificationMeta('episodeTitle');
+  @override
+  late final GeneratedColumn<String> episodeTitle = GeneratedColumn<String>(
+      'episode_title', aliasedName, false,
+      type: DriftSqlType.string, requiredDuringInsert: true);
+  static const VerificationMeta _episodeNumberMeta =
+      const VerificationMeta('episodeNumber');
+  @override
+  late final GeneratedColumn<int> episodeNumber = GeneratedColumn<int>(
+      'episode_number', aliasedName, false,
+      type: DriftSqlType.int, requiredDuringInsert: true);
+  static const VerificationMeta _thumbnailUrlMeta =
+      const VerificationMeta('thumbnailUrl');
+  @override
+  late final GeneratedColumn<String> thumbnailUrl = GeneratedColumn<String>(
+      'thumbnail_url', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  @override
+  List<GeneratedColumn> get $columns => [
+        id,
+        seriesId,
+        episodeId,
+        videoUrl,
+        durationSec,
+        rank,
+        seriesTitle,
+        episodeTitle,
+        episodeNumber,
+        thumbnailUrl
+      ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'cached_reels';
+  @override
+  VerificationContext validateIntegrity(Insertable<CachedReel> instance,
+      {bool isInserting = false}) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('series_id')) {
+      context.handle(_seriesIdMeta,
+          seriesId.isAcceptableOrUnknown(data['series_id']!, _seriesIdMeta));
+    } else if (isInserting) {
+      context.missing(_seriesIdMeta);
+    }
+    if (data.containsKey('episode_id')) {
+      context.handle(_episodeIdMeta,
+          episodeId.isAcceptableOrUnknown(data['episode_id']!, _episodeIdMeta));
+    } else if (isInserting) {
+      context.missing(_episodeIdMeta);
+    }
+    if (data.containsKey('video_url')) {
+      context.handle(_videoUrlMeta,
+          videoUrl.isAcceptableOrUnknown(data['video_url']!, _videoUrlMeta));
+    } else if (isInserting) {
+      context.missing(_videoUrlMeta);
+    }
+    if (data.containsKey('duration_sec')) {
+      context.handle(
+          _durationSecMeta,
+          durationSec.isAcceptableOrUnknown(
+              data['duration_sec']!, _durationSecMeta));
+    } else if (isInserting) {
+      context.missing(_durationSecMeta);
+    }
+    if (data.containsKey('rank')) {
+      context.handle(
+          _rankMeta, rank.isAcceptableOrUnknown(data['rank']!, _rankMeta));
+    } else if (isInserting) {
+      context.missing(_rankMeta);
+    }
+    if (data.containsKey('series_title')) {
+      context.handle(
+          _seriesTitleMeta,
+          seriesTitle.isAcceptableOrUnknown(
+              data['series_title']!, _seriesTitleMeta));
+    } else if (isInserting) {
+      context.missing(_seriesTitleMeta);
+    }
+    if (data.containsKey('episode_title')) {
+      context.handle(
+          _episodeTitleMeta,
+          episodeTitle.isAcceptableOrUnknown(
+              data['episode_title']!, _episodeTitleMeta));
+    } else if (isInserting) {
+      context.missing(_episodeTitleMeta);
+    }
+    if (data.containsKey('episode_number')) {
+      context.handle(
+          _episodeNumberMeta,
+          episodeNumber.isAcceptableOrUnknown(
+              data['episode_number']!, _episodeNumberMeta));
+    } else if (isInserting) {
+      context.missing(_episodeNumberMeta);
+    }
+    if (data.containsKey('thumbnail_url')) {
+      context.handle(
+          _thumbnailUrlMeta,
+          thumbnailUrl.isAcceptableOrUnknown(
+              data['thumbnail_url']!, _thumbnailUrlMeta));
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  CachedReel map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return CachedReel(
+      id: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}id'])!,
+      seriesId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}series_id'])!,
+      episodeId: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}episode_id'])!,
+      videoUrl: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}video_url'])!,
+      durationSec: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}duration_sec'])!,
+      rank: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}rank'])!,
+      seriesTitle: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}series_title'])!,
+      episodeTitle: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}episode_title'])!,
+      episodeNumber: attachedDatabase.typeMapping
+          .read(DriftSqlType.int, data['${effectivePrefix}episode_number'])!,
+      thumbnailUrl: attachedDatabase.typeMapping
+          .read(DriftSqlType.string, data['${effectivePrefix}thumbnail_url']),
+    );
+  }
+
+  @override
+  $CachedReelsTable createAlias(String alias) {
+    return $CachedReelsTable(attachedDatabase, alias);
+  }
+}
+
+class CachedReel extends DataClass implements Insertable<CachedReel> {
+  final String id;
+  final String seriesId;
+  final String episodeId;
+  final String videoUrl;
+  final int durationSec;
+  final int rank;
+  final String seriesTitle;
+  final String episodeTitle;
+  final int episodeNumber;
+  final String? thumbnailUrl;
+  const CachedReel(
+      {required this.id,
+      required this.seriesId,
+      required this.episodeId,
+      required this.videoUrl,
+      required this.durationSec,
+      required this.rank,
+      required this.seriesTitle,
+      required this.episodeTitle,
+      required this.episodeNumber,
+      this.thumbnailUrl});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['series_id'] = Variable<String>(seriesId);
+    map['episode_id'] = Variable<String>(episodeId);
+    map['video_url'] = Variable<String>(videoUrl);
+    map['duration_sec'] = Variable<int>(durationSec);
+    map['rank'] = Variable<int>(rank);
+    map['series_title'] = Variable<String>(seriesTitle);
+    map['episode_title'] = Variable<String>(episodeTitle);
+    map['episode_number'] = Variable<int>(episodeNumber);
+    if (!nullToAbsent || thumbnailUrl != null) {
+      map['thumbnail_url'] = Variable<String>(thumbnailUrl);
+    }
+    return map;
+  }
+
+  CachedReelsCompanion toCompanion(bool nullToAbsent) {
+    return CachedReelsCompanion(
+      id: Value(id),
+      seriesId: Value(seriesId),
+      episodeId: Value(episodeId),
+      videoUrl: Value(videoUrl),
+      durationSec: Value(durationSec),
+      rank: Value(rank),
+      seriesTitle: Value(seriesTitle),
+      episodeTitle: Value(episodeTitle),
+      episodeNumber: Value(episodeNumber),
+      thumbnailUrl: thumbnailUrl == null && nullToAbsent
+          ? const Value.absent()
+          : Value(thumbnailUrl),
+    );
+  }
+
+  factory CachedReel.fromJson(Map<String, dynamic> json,
+      {ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return CachedReel(
+      id: serializer.fromJson<String>(json['id']),
+      seriesId: serializer.fromJson<String>(json['seriesId']),
+      episodeId: serializer.fromJson<String>(json['episodeId']),
+      videoUrl: serializer.fromJson<String>(json['videoUrl']),
+      durationSec: serializer.fromJson<int>(json['durationSec']),
+      rank: serializer.fromJson<int>(json['rank']),
+      seriesTitle: serializer.fromJson<String>(json['seriesTitle']),
+      episodeTitle: serializer.fromJson<String>(json['episodeTitle']),
+      episodeNumber: serializer.fromJson<int>(json['episodeNumber']),
+      thumbnailUrl: serializer.fromJson<String?>(json['thumbnailUrl']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'seriesId': serializer.toJson<String>(seriesId),
+      'episodeId': serializer.toJson<String>(episodeId),
+      'videoUrl': serializer.toJson<String>(videoUrl),
+      'durationSec': serializer.toJson<int>(durationSec),
+      'rank': serializer.toJson<int>(rank),
+      'seriesTitle': serializer.toJson<String>(seriesTitle),
+      'episodeTitle': serializer.toJson<String>(episodeTitle),
+      'episodeNumber': serializer.toJson<int>(episodeNumber),
+      'thumbnailUrl': serializer.toJson<String?>(thumbnailUrl),
+    };
+  }
+
+  CachedReel copyWith(
+          {String? id,
+          String? seriesId,
+          String? episodeId,
+          String? videoUrl,
+          int? durationSec,
+          int? rank,
+          String? seriesTitle,
+          String? episodeTitle,
+          int? episodeNumber,
+          Value<String?> thumbnailUrl = const Value.absent()}) =>
+      CachedReel(
+        id: id ?? this.id,
+        seriesId: seriesId ?? this.seriesId,
+        episodeId: episodeId ?? this.episodeId,
+        videoUrl: videoUrl ?? this.videoUrl,
+        durationSec: durationSec ?? this.durationSec,
+        rank: rank ?? this.rank,
+        seriesTitle: seriesTitle ?? this.seriesTitle,
+        episodeTitle: episodeTitle ?? this.episodeTitle,
+        episodeNumber: episodeNumber ?? this.episodeNumber,
+        thumbnailUrl:
+            thumbnailUrl.present ? thumbnailUrl.value : this.thumbnailUrl,
+      );
+  CachedReel copyWithCompanion(CachedReelsCompanion data) {
+    return CachedReel(
+      id: data.id.present ? data.id.value : this.id,
+      seriesId: data.seriesId.present ? data.seriesId.value : this.seriesId,
+      episodeId: data.episodeId.present ? data.episodeId.value : this.episodeId,
+      videoUrl: data.videoUrl.present ? data.videoUrl.value : this.videoUrl,
+      durationSec:
+          data.durationSec.present ? data.durationSec.value : this.durationSec,
+      rank: data.rank.present ? data.rank.value : this.rank,
+      seriesTitle:
+          data.seriesTitle.present ? data.seriesTitle.value : this.seriesTitle,
+      episodeTitle: data.episodeTitle.present
+          ? data.episodeTitle.value
+          : this.episodeTitle,
+      episodeNumber: data.episodeNumber.present
+          ? data.episodeNumber.value
+          : this.episodeNumber,
+      thumbnailUrl: data.thumbnailUrl.present
+          ? data.thumbnailUrl.value
+          : this.thumbnailUrl,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('CachedReel(')
+          ..write('id: $id, ')
+          ..write('seriesId: $seriesId, ')
+          ..write('episodeId: $episodeId, ')
+          ..write('videoUrl: $videoUrl, ')
+          ..write('durationSec: $durationSec, ')
+          ..write('rank: $rank, ')
+          ..write('seriesTitle: $seriesTitle, ')
+          ..write('episodeTitle: $episodeTitle, ')
+          ..write('episodeNumber: $episodeNumber, ')
+          ..write('thumbnailUrl: $thumbnailUrl')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+      id,
+      seriesId,
+      episodeId,
+      videoUrl,
+      durationSec,
+      rank,
+      seriesTitle,
+      episodeTitle,
+      episodeNumber,
+      thumbnailUrl);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is CachedReel &&
+          other.id == this.id &&
+          other.seriesId == this.seriesId &&
+          other.episodeId == this.episodeId &&
+          other.videoUrl == this.videoUrl &&
+          other.durationSec == this.durationSec &&
+          other.rank == this.rank &&
+          other.seriesTitle == this.seriesTitle &&
+          other.episodeTitle == this.episodeTitle &&
+          other.episodeNumber == this.episodeNumber &&
+          other.thumbnailUrl == this.thumbnailUrl);
+}
+
+class CachedReelsCompanion extends UpdateCompanion<CachedReel> {
+  final Value<String> id;
+  final Value<String> seriesId;
+  final Value<String> episodeId;
+  final Value<String> videoUrl;
+  final Value<int> durationSec;
+  final Value<int> rank;
+  final Value<String> seriesTitle;
+  final Value<String> episodeTitle;
+  final Value<int> episodeNumber;
+  final Value<String?> thumbnailUrl;
+  final Value<int> rowid;
+  const CachedReelsCompanion({
+    this.id = const Value.absent(),
+    this.seriesId = const Value.absent(),
+    this.episodeId = const Value.absent(),
+    this.videoUrl = const Value.absent(),
+    this.durationSec = const Value.absent(),
+    this.rank = const Value.absent(),
+    this.seriesTitle = const Value.absent(),
+    this.episodeTitle = const Value.absent(),
+    this.episodeNumber = const Value.absent(),
+    this.thumbnailUrl = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  CachedReelsCompanion.insert({
+    required String id,
+    required String seriesId,
+    required String episodeId,
+    required String videoUrl,
+    required int durationSec,
+    required int rank,
+    required String seriesTitle,
+    required String episodeTitle,
+    required int episodeNumber,
+    this.thumbnailUrl = const Value.absent(),
+    this.rowid = const Value.absent(),
+  })  : id = Value(id),
+        seriesId = Value(seriesId),
+        episodeId = Value(episodeId),
+        videoUrl = Value(videoUrl),
+        durationSec = Value(durationSec),
+        rank = Value(rank),
+        seriesTitle = Value(seriesTitle),
+        episodeTitle = Value(episodeTitle),
+        episodeNumber = Value(episodeNumber);
+  static Insertable<CachedReel> custom({
+    Expression<String>? id,
+    Expression<String>? seriesId,
+    Expression<String>? episodeId,
+    Expression<String>? videoUrl,
+    Expression<int>? durationSec,
+    Expression<int>? rank,
+    Expression<String>? seriesTitle,
+    Expression<String>? episodeTitle,
+    Expression<int>? episodeNumber,
+    Expression<String>? thumbnailUrl,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (seriesId != null) 'series_id': seriesId,
+      if (episodeId != null) 'episode_id': episodeId,
+      if (videoUrl != null) 'video_url': videoUrl,
+      if (durationSec != null) 'duration_sec': durationSec,
+      if (rank != null) 'rank': rank,
+      if (seriesTitle != null) 'series_title': seriesTitle,
+      if (episodeTitle != null) 'episode_title': episodeTitle,
+      if (episodeNumber != null) 'episode_number': episodeNumber,
+      if (thumbnailUrl != null) 'thumbnail_url': thumbnailUrl,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  CachedReelsCompanion copyWith(
+      {Value<String>? id,
+      Value<String>? seriesId,
+      Value<String>? episodeId,
+      Value<String>? videoUrl,
+      Value<int>? durationSec,
+      Value<int>? rank,
+      Value<String>? seriesTitle,
+      Value<String>? episodeTitle,
+      Value<int>? episodeNumber,
+      Value<String?>? thumbnailUrl,
+      Value<int>? rowid}) {
+    return CachedReelsCompanion(
+      id: id ?? this.id,
+      seriesId: seriesId ?? this.seriesId,
+      episodeId: episodeId ?? this.episodeId,
+      videoUrl: videoUrl ?? this.videoUrl,
+      durationSec: durationSec ?? this.durationSec,
+      rank: rank ?? this.rank,
+      seriesTitle: seriesTitle ?? this.seriesTitle,
+      episodeTitle: episodeTitle ?? this.episodeTitle,
+      episodeNumber: episodeNumber ?? this.episodeNumber,
+      thumbnailUrl: thumbnailUrl ?? this.thumbnailUrl,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (seriesId.present) {
+      map['series_id'] = Variable<String>(seriesId.value);
+    }
+    if (episodeId.present) {
+      map['episode_id'] = Variable<String>(episodeId.value);
+    }
+    if (videoUrl.present) {
+      map['video_url'] = Variable<String>(videoUrl.value);
+    }
+    if (durationSec.present) {
+      map['duration_sec'] = Variable<int>(durationSec.value);
+    }
+    if (rank.present) {
+      map['rank'] = Variable<int>(rank.value);
+    }
+    if (seriesTitle.present) {
+      map['series_title'] = Variable<String>(seriesTitle.value);
+    }
+    if (episodeTitle.present) {
+      map['episode_title'] = Variable<String>(episodeTitle.value);
+    }
+    if (episodeNumber.present) {
+      map['episode_number'] = Variable<int>(episodeNumber.value);
+    }
+    if (thumbnailUrl.present) {
+      map['thumbnail_url'] = Variable<String>(thumbnailUrl.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('CachedReelsCompanion(')
+          ..write('id: $id, ')
+          ..write('seriesId: $seriesId, ')
+          ..write('episodeId: $episodeId, ')
+          ..write('videoUrl: $videoUrl, ')
+          ..write('durationSec: $durationSec, ')
+          ..write('rank: $rank, ')
+          ..write('seriesTitle: $seriesTitle, ')
+          ..write('episodeTitle: $episodeTitle, ')
+          ..write('episodeNumber: $episodeNumber, ')
+          ..write('thumbnailUrl: $thumbnailUrl, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 class $CachedEpisodesTable extends CachedEpisodes
     with TableInfo<$CachedEpisodesTable, CachedEpisode> {
   @override
@@ -1298,6 +1831,7 @@ class DownloadsCompanion extends UpdateCompanion<Download> {
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
+  late final $CachedReelsTable cachedReels = $CachedReelsTable(this);
   late final $CachedEpisodesTable cachedEpisodes = $CachedEpisodesTable(this);
   late final $ProgressLocalTable progressLocal = $ProgressLocalTable(this);
   late final $DownloadsTable downloads = $DownloadsTable(this);
@@ -1306,9 +1840,254 @@ abstract class _$AppDatabase extends GeneratedDatabase {
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
   @override
   List<DatabaseSchemaEntity> get allSchemaEntities =>
-      [cachedEpisodes, progressLocal, downloads];
+      [cachedReels, cachedEpisodes, progressLocal, downloads];
 }
 
+typedef $$CachedReelsTableCreateCompanionBuilder = CachedReelsCompanion
+    Function({
+  required String id,
+  required String seriesId,
+  required String episodeId,
+  required String videoUrl,
+  required int durationSec,
+  required int rank,
+  required String seriesTitle,
+  required String episodeTitle,
+  required int episodeNumber,
+  Value<String?> thumbnailUrl,
+  Value<int> rowid,
+});
+typedef $$CachedReelsTableUpdateCompanionBuilder = CachedReelsCompanion
+    Function({
+  Value<String> id,
+  Value<String> seriesId,
+  Value<String> episodeId,
+  Value<String> videoUrl,
+  Value<int> durationSec,
+  Value<int> rank,
+  Value<String> seriesTitle,
+  Value<String> episodeTitle,
+  Value<int> episodeNumber,
+  Value<String?> thumbnailUrl,
+  Value<int> rowid,
+});
+
+class $$CachedReelsTableFilterComposer
+    extends Composer<_$AppDatabase, $CachedReelsTable> {
+  $$CachedReelsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get seriesId => $composableBuilder(
+      column: $table.seriesId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get episodeId => $composableBuilder(
+      column: $table.episodeId, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get videoUrl => $composableBuilder(
+      column: $table.videoUrl, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get durationSec => $composableBuilder(
+      column: $table.durationSec, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get rank => $composableBuilder(
+      column: $table.rank, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get seriesTitle => $composableBuilder(
+      column: $table.seriesTitle, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get episodeTitle => $composableBuilder(
+      column: $table.episodeTitle, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<int> get episodeNumber => $composableBuilder(
+      column: $table.episodeNumber, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get thumbnailUrl => $composableBuilder(
+      column: $table.thumbnailUrl, builder: (column) => ColumnFilters(column));
+}
+
+class $$CachedReelsTableOrderingComposer
+    extends Composer<_$AppDatabase, $CachedReelsTable> {
+  $$CachedReelsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+      column: $table.id, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get seriesId => $composableBuilder(
+      column: $table.seriesId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get episodeId => $composableBuilder(
+      column: $table.episodeId, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get videoUrl => $composableBuilder(
+      column: $table.videoUrl, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get durationSec => $composableBuilder(
+      column: $table.durationSec, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get rank => $composableBuilder(
+      column: $table.rank, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get seriesTitle => $composableBuilder(
+      column: $table.seriesTitle, builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get episodeTitle => $composableBuilder(
+      column: $table.episodeTitle,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<int> get episodeNumber => $composableBuilder(
+      column: $table.episodeNumber,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get thumbnailUrl => $composableBuilder(
+      column: $table.thumbnailUrl,
+      builder: (column) => ColumnOrderings(column));
+}
+
+class $$CachedReelsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $CachedReelsTable> {
+  $$CachedReelsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get seriesId =>
+      $composableBuilder(column: $table.seriesId, builder: (column) => column);
+
+  GeneratedColumn<String> get episodeId =>
+      $composableBuilder(column: $table.episodeId, builder: (column) => column);
+
+  GeneratedColumn<String> get videoUrl =>
+      $composableBuilder(column: $table.videoUrl, builder: (column) => column);
+
+  GeneratedColumn<int> get durationSec => $composableBuilder(
+      column: $table.durationSec, builder: (column) => column);
+
+  GeneratedColumn<int> get rank =>
+      $composableBuilder(column: $table.rank, builder: (column) => column);
+
+  GeneratedColumn<String> get seriesTitle => $composableBuilder(
+      column: $table.seriesTitle, builder: (column) => column);
+
+  GeneratedColumn<String> get episodeTitle => $composableBuilder(
+      column: $table.episodeTitle, builder: (column) => column);
+
+  GeneratedColumn<int> get episodeNumber => $composableBuilder(
+      column: $table.episodeNumber, builder: (column) => column);
+
+  GeneratedColumn<String> get thumbnailUrl => $composableBuilder(
+      column: $table.thumbnailUrl, builder: (column) => column);
+}
+
+class $$CachedReelsTableTableManager extends RootTableManager<
+    _$AppDatabase,
+    $CachedReelsTable,
+    CachedReel,
+    $$CachedReelsTableFilterComposer,
+    $$CachedReelsTableOrderingComposer,
+    $$CachedReelsTableAnnotationComposer,
+    $$CachedReelsTableCreateCompanionBuilder,
+    $$CachedReelsTableUpdateCompanionBuilder,
+    (CachedReel, BaseReferences<_$AppDatabase, $CachedReelsTable, CachedReel>),
+    CachedReel,
+    PrefetchHooks Function()> {
+  $$CachedReelsTableTableManager(_$AppDatabase db, $CachedReelsTable table)
+      : super(TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$CachedReelsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$CachedReelsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$CachedReelsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<String> id = const Value.absent(),
+            Value<String> seriesId = const Value.absent(),
+            Value<String> episodeId = const Value.absent(),
+            Value<String> videoUrl = const Value.absent(),
+            Value<int> durationSec = const Value.absent(),
+            Value<int> rank = const Value.absent(),
+            Value<String> seriesTitle = const Value.absent(),
+            Value<String> episodeTitle = const Value.absent(),
+            Value<int> episodeNumber = const Value.absent(),
+            Value<String?> thumbnailUrl = const Value.absent(),
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              CachedReelsCompanion(
+            id: id,
+            seriesId: seriesId,
+            episodeId: episodeId,
+            videoUrl: videoUrl,
+            durationSec: durationSec,
+            rank: rank,
+            seriesTitle: seriesTitle,
+            episodeTitle: episodeTitle,
+            episodeNumber: episodeNumber,
+            thumbnailUrl: thumbnailUrl,
+            rowid: rowid,
+          ),
+          createCompanionCallback: ({
+            required String id,
+            required String seriesId,
+            required String episodeId,
+            required String videoUrl,
+            required int durationSec,
+            required int rank,
+            required String seriesTitle,
+            required String episodeTitle,
+            required int episodeNumber,
+            Value<String?> thumbnailUrl = const Value.absent(),
+            Value<int> rowid = const Value.absent(),
+          }) =>
+              CachedReelsCompanion.insert(
+            id: id,
+            seriesId: seriesId,
+            episodeId: episodeId,
+            videoUrl: videoUrl,
+            durationSec: durationSec,
+            rank: rank,
+            seriesTitle: seriesTitle,
+            episodeTitle: episodeTitle,
+            episodeNumber: episodeNumber,
+            thumbnailUrl: thumbnailUrl,
+            rowid: rowid,
+          ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ));
+}
+
+typedef $$CachedReelsTableProcessedTableManager = ProcessedTableManager<
+    _$AppDatabase,
+    $CachedReelsTable,
+    CachedReel,
+    $$CachedReelsTableFilterComposer,
+    $$CachedReelsTableOrderingComposer,
+    $$CachedReelsTableAnnotationComposer,
+    $$CachedReelsTableCreateCompanionBuilder,
+    $$CachedReelsTableUpdateCompanionBuilder,
+    (CachedReel, BaseReferences<_$AppDatabase, $CachedReelsTable, CachedReel>),
+    CachedReel,
+    PrefetchHooks Function()>;
 typedef $$CachedEpisodesTableCreateCompanionBuilder = CachedEpisodesCompanion
     Function({
   required String id,
@@ -1954,6 +2733,8 @@ typedef $$DownloadsTableProcessedTableManager = ProcessedTableManager<
 class $AppDatabaseManager {
   final _$AppDatabase _db;
   $AppDatabaseManager(this._db);
+  $$CachedReelsTableTableManager get cachedReels =>
+      $$CachedReelsTableTableManager(_db, _db.cachedReels);
   $$CachedEpisodesTableTableManager get cachedEpisodes =>
       $$CachedEpisodesTableTableManager(_db, _db.cachedEpisodes);
   $$ProgressLocalTableTableManager get progressLocal =>

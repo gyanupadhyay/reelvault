@@ -5,6 +5,7 @@
 // produced at build time.
 //
 // Tables:
+//  - cached_reels:     for instant cold-start of the reel feed (v2)
 //  - cached_episodes:  for offline reads of series/episode metadata
 //  - progress_local:   our source of truth for watch progress, with `synced` flag
 //  - downloads:        local download tracking
@@ -13,6 +14,22 @@ import 'package:drift/drift.dart';
 import 'package:drift_flutter/drift_flutter.dart';
 
 part 'app_database.g.dart';
+
+class CachedReels extends Table {
+  TextColumn get id => text()();
+  TextColumn get seriesId => text()();
+  TextColumn get episodeId => text()();
+  TextColumn get videoUrl => text()();
+  IntColumn get durationSec => integer()();
+  IntColumn get rank => integer()();
+  TextColumn get seriesTitle => text()();
+  TextColumn get episodeTitle => text()();
+  IntColumn get episodeNumber => integer()();
+  TextColumn get thumbnailUrl => text().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
 
 class CachedEpisodes extends Table {
   TextColumn get id => text()();
@@ -55,10 +72,21 @@ class Downloads extends Table {
   Set<Column> get primaryKey => {episodeId};
 }
 
-@DriftDatabase(tables: [CachedEpisodes, ProgressLocal, Downloads])
+@DriftDatabase(tables: [CachedReels, CachedEpisodes, ProgressLocal, Downloads])
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(driftDatabase(name: 'reelvault'));
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
+
+  @override
+  MigrationStrategy get migration => MigrationStrategy(
+        onCreate: (m) => m.createAll(),
+        // v1 → v2: add cached_reels for instant cold-start of the reel feed.
+        onUpgrade: (m, from, to) async {
+          if (from < 2) {
+            await m.createTable(cachedReels);
+          }
+        },
+      );
 }

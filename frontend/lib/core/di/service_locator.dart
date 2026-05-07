@@ -23,7 +23,7 @@ Future<void> setupLocator() async {
   sl.registerLazySingleton<AppDatabase>(() => AppDatabase());
   sl.registerLazySingleton<ConnectivityService>(() => ConnectivityService());
   sl.registerLazySingleton<RemoteDataSource>(() => RemoteDataSource(sl()));
-  sl.registerLazySingleton<ReelRepository>(() => ReelRepositoryImpl(sl()));
+  sl.registerLazySingleton<ReelRepository>(() => ReelRepositoryImpl(sl(), sl()));
   sl.registerLazySingleton<SeriesRepository>(() => SeriesRepositoryImpl(sl(), sl()));
   sl.registerLazySingleton<ProgressRepository>(() => ProgressRepositoryImpl(sl(), sl()));
   sl.registerLazySingleton<DownloadRepository>(() => DownloadRepositoryImpl(sl()));

@@ -13,11 +13,12 @@ import '../datasources/remote_data_source.dart';
 
 class ReelRepositoryImpl implements ReelRepository {
   final RemoteDataSource _remote;
+  final AppDatabase _db;
   Future<({List<Reel> items, int? nextCursor})>? _prefetchFuture;
   ({List<Reel> items, int? nextCursor})? _prefetchResult;
   bool _prefetchTaken = false;
 
-  ReelRepositoryImpl(this._remote);
+  ReelRepositoryImpl(this._remote, this._db);
 
   @override
   Future<({List<Reel> items, int? nextCursor})> fetchReels({int cursor = 0, int limit = 20}) async {
@@ -28,15 +29,26 @@ class ReelRepositoryImpl implements ReelRepository {
       if (_prefetchResult != null) {
         _prefetchTaken = true;
         debugPrint('[reels] ⚡ serving from prefetch cache (instant)');
+        // Persist the prefetched page to Drift so the next cold start renders
+        // instantly even before the network responds.
+        unawaited(_writeCache(_prefetchResult!.items, cursor: 0));
         return _prefetchResult!;
       }
       if (_prefetchFuture != null) {
         _prefetchTaken = true;
         debugPrint('[reels] ⌛ awaiting in-flight prefetch');
-        return _prefetchFuture!;
+        return _prefetchFuture!.then((r) {
+          unawaited(_writeCache(r.items, cursor: 0));
+          return r;
+        });
       }
     }
-    return _remote.fetchReels(cursor: cursor, limit: limit);
+    final r = await _remote.fetchReels(cursor: cursor, limit: limit);
+    // Write-back so subsequent cold-starts can render from cache. Pagination
+    // pages also land here — eventually the cache mirrors what the user has
+    // scrolled past, which is exactly what "instant cold-start" wants.
+    unawaited(_writeCache(r.items, cursor: cursor));
+    return r;
   }
 
   @override
@@ -64,6 +76,76 @@ class ReelRepositoryImpl implements ReelRepository {
       throw e;
     });
   }
+
+  @override
+  Future<List<Reel>> getCachedReels() async {
+    final rows = await (_db.select(_db.cachedReels)
+          ..orderBy([(t) => d.OrderingTerm(expression: t.rank)]))
+        .get();
+    return rows
+        .map((r) => Reel(
+              id: r.id,
+              seriesId: r.seriesId,
+              episodeId: r.episodeId,
+              videoUrl: r.videoUrl,
+              durationSec: r.durationSec,
+              seriesTitle: r.seriesTitle,
+              episodeTitle: r.episodeTitle,
+              episodeNumber: r.episodeNumber,
+              thumbnailUrl: r.thumbnailUrl,
+            ))
+        .toList();
+  }
+
+  /// Persist the page to Drift. The API's `cursor` is the rank of the first
+  /// item returned (server: `WHERE r.rank >= cursor ORDER BY rank`), so we can
+  /// derive a stable rank for each row as `cursor + i`.
+  ///
+  /// On `cursor == 0` we wipe the table inside a transaction first — that's a
+  /// fresh refresh of page 1, so any previously-cached paginated rows are
+  /// stale and would otherwise leak. For pagination (`cursor > 0`) we just
+  /// upsert by id, preserving page 1's rows.
+  Future<void> _writeCache(List<Reel> reels, {required int cursor}) async {
+    if (reels.isEmpty) return;
+    try {
+      if (cursor == 0) {
+        await _db.transaction(() async {
+          await _db.delete(_db.cachedReels).go();
+          await _db.batch((b) {
+            for (var i = 0; i < reels.length; i++) {
+              b.insert(_db.cachedReels, _toCompanion(reels[i], rank: i));
+            }
+          });
+        });
+      } else {
+        await _db.batch((b) {
+          for (var i = 0; i < reels.length; i++) {
+            b.insert(
+              _db.cachedReels,
+              _toCompanion(reels[i], rank: cursor + i),
+              mode: d.InsertMode.insertOrReplace,
+            );
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint('[reels] ⚠ cache write failed (non-fatal): $e');
+    }
+  }
+
+  CachedReelsCompanion _toCompanion(Reel r, {required int rank}) =>
+      CachedReelsCompanion.insert(
+        id: r.id,
+        seriesId: r.seriesId,
+        episodeId: r.episodeId,
+        videoUrl: r.videoUrl,
+        durationSec: r.durationSec,
+        rank: rank,
+        seriesTitle: r.seriesTitle,
+        episodeTitle: r.episodeTitle,
+        episodeNumber: r.episodeNumber,
+        thumbnailUrl: d.Value(r.thumbnailUrl),
+      );
 }
 
 class SeriesRepositoryImpl implements SeriesRepository {

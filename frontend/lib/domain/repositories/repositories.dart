@@ -14,6 +14,11 @@ abstract class ReelRepository {
   /// Kicks off a background fetch of the first page so the reel feed has data
   /// ready by the time it mounts. Safe to call multiple times — only first wins.
   void startPrefetch({int limit = 20});
+
+  /// Returns reels persisted from previous sessions (Drift cache). Used by the
+  /// bloc on cold-start to render instantly while the network refresh runs in
+  /// the background. Empty list = no cache.
+  Future<List<Reel>> getCachedReels();
 }
 
 abstract class SeriesRepository {
