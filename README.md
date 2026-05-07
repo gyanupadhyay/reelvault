@@ -131,6 +131,12 @@ To find your LAN IP: `ipconfig getifaddr en0` (macOS) or `hostname -I` (Linux) o
 - Rapid-fire swipe through 10 reels — only the final one starts playing (scroll-settle works).
 - DevTools → Performance tab → record while scrolling. Frames should stay under 16ms (60fps).
 
+### Cold-start cache (instant feed on warm device)
+After the first launch, the reel feed is mirrored into a Drift `cached_reels` table. On every subsequent cold start, the bloc emits the cached page in the first frame, then refreshes from the network in the background. Test:
+- Launch the app once and let it load. Force-quit.
+- Toggle airplane mode ON, relaunch — the feed renders from cache instantly. Look for `[reels] ⚡ rendering N cached reels` in `flutter logs`.
+- Disable airplane mode and relaunch — same instant cache render, then a silent network refresh replaces state.
+
 ### Controller count (the 30% piece)
 The pool keeps `{active-1, active, active+1}` — 3 controllers steady-state. Only the active slot actively decodes; both neighbors are paused after init, so we hold 3 hardware decoder slots but only 1 does real work — safe on Qualcomm. Backward swipes are instant because `active-1` is already buffered. The existing `[pool]` debug logs print the window on every transition:
 

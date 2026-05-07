@@ -86,6 +86,8 @@ Three layers of preload work together so swipes never wait on the network:
 
 **Cold-start prefetch.** The first `/reels` page is also fetched eagerly during `setupLocator()`, before the bloc even mounts. The repository (`ReelRepositoryImpl`) caches the in-flight `Future` so when the bloc's `fetchReels(cursor: 0)` call arrives a few hundred ms later, it gets handed the same Future instead of issuing a duplicate request. This overlaps the HTTP roundtrip with Flutter framework boot and shaves a few hundred ms off the cold-start path on real hardware.
 
+**Cold-start cache (Drift).** On every successful `/reels` fetch, `ReelRepositoryImpl._writeCache` mirrors the page into the `cached_reels` Drift table. On the next cold start, `ReelFeedBloc._onStarted` runs in two phases: (1) `getCachedReels()` reads the cached page and emits it immediately so the feed renders in the first frame; (2) the network refresh runs in the background and replaces state when it lands. If the refresh fails *and* we already showed cached content, the error banner is suppressed — the user keeps seeing a valid feed. Cache write logic: `cursor == 0` wipes-and-rewrites in a transaction so a refresh evicts stale paginated rows; `cursor > 0` upserts using `rank = cursor + i` (the API guarantees rows ordered by rank, starting at the cursor). The cache is bounded by what the user has actually scrolled past — there's no fire-and-forget warming.
+
 ## Reel tile rendering — no white spinner, ever
 
 The reel tile uses a 3-layer Stack:
@@ -201,8 +203,7 @@ These three together are what enable the perceived-loading fixes on the client s
 2. **Third-party CDN dependency.** Videos and thumbnails are served by Pexels (`videos.pexels.com`, `images.pexels.com`). Pros: zero origin bandwidth, global edge, no LFS storage on our side. Cons: Pexels could remove a video, rate-limit the API, or change CDN URLs — none happens often, but a real product would mirror the chosen Pexels assets to its own object storage (R2 / S3 + CloudFront) for stability and to satisfy SLAs.
 3. **No retry/backoff** on individual progress writes — they rely on the bulk-sync net to catch them. Fine for a trial; in prod I'd add exponential backoff. Bulk sync itself is chunked into 200-row batches.
 4. **No video manifest negotiation** — we assume the URL plays. HLS/DASH adaptive bitrate is out of scope. A production app would ship a 720p reel rendition + HLS for adaptive bitrate.
-5. **Reel feed isn't locally cached** — the bloc fetches `/reels` over the network on every cold start (eager prefetch overlaps it with framework boot, but the network is still the bottleneck). Caching the last seen page in Drift would make subsequent cold starts effectively instant.
-6. **No ETag revalidation on metadata endpoints** — `/reels` and `/series/:id` always return full payloads. Adding `ETag` + `If-None-Match` (304 short-circuit) would save a round-trip's worth of bytes on subsequent fetches.
+5. **No ETag revalidation on metadata endpoints** — `/reels` and `/series/:id` always return full payloads. Adding `ETag` + `If-None-Match` (304 short-circuit) would save a round-trip's worth of bytes on subsequent fetches.
 
 ## Library choices, justified
 
