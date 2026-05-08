@@ -67,7 +67,11 @@ class ReelFeedState extends Equatable {
 class ReelFeedBloc extends Bloc<ReelFeedEvent, ReelFeedState> {
   final ReelRepository _repo;
 
-  ReelFeedBloc(this._repo) : super(const ReelFeedState()) {
+  // The router constructs us with `..add(ReelFeedStarted())`, so the very
+  // first state emitted is "loading"-true with no reels yet. Without this,
+  // the screen's first paint catches `loading=false reels=[]` and flashes
+  // the "No reels yet" empty-state for a frame before the cache read fires.
+  ReelFeedBloc(this._repo) : super(const ReelFeedState(loading: true)) {
     on<ReelFeedStarted>(_onStarted);
     on<ReelIndexChanged>(_onIndexChanged);
     on<ReelFeedLoadMore>(_onLoadMore);
